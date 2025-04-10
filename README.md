@@ -1,7 +1,7 @@
 # 🌸 KouriChat - 虚拟与现实交织，温柔永恒的陪伴
 
-[![Python](https://img.shields.io/badge/Python-3.11_➔_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B5B84)](https://www.python.org/downloads/)
-[![版本](https://img.shields.io/badge/版本-1.3.6-ff69b4?style=for-the-badge)]()
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B5B84)](https://www.python.org/downloads/)
+[![版本](https://img.shields.io/badge/版本-1.4.0-ff69b4?style=for-the-badge)]()
 
 ## 📝 项目简介
 
