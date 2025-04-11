@@ -6,8 +6,8 @@
 
 [![Star History Chart](https://api.star-history.com/svg?repos=KouriChat/KouriChat&type=Timeline)](https://www.star-history.com/#KouriChat/KouriChat&Timeline)
 
-##赞助项目
-
+## 赞助项目
+[/data/images/img/qrcode.jpg](https://github.com/KouriChat/KouriChat/blob/main/data/images/img/qrcode.jpg)
 ## 📝 项目简介
 
 KouriChat是一个基于人工智能的微信聊天机器人，能够实现角色扮演、智能对话、图像生成与识别、语音消息和持久化记忆等功能。本项目旨在打造一个能够提供温柔陪伴的AI助手，通过微信平台与用户进行无缝交互。
