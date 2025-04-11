@@ -10,7 +10,13 @@
 ![image](https://github.com/KouriChat/KouriChat/blob/main/data/images/img/qrcode.jpg)
 ## 📝 项目简介
 
-KouriChat是一个基于人工智能的微信聊天机器人，能够实现角色扮演、智能对话、图像生成与识别、语音消息和持久化记忆等功能。本项目旨在打造一个能够提供温柔陪伴的AI助手，通过微信平台与用户进行无缝交互。
+KouriChat是一个基于人工智能的微信聊天机器人，能够实现角色扮演、智能对话、图像生成与识别、语音消息和持久化记忆等功能。本项目旨在打造一个能够提供温柔陪伴的AI助手，通过微信平台与用户进行无缝交互。<br>
+官网：kourichat.com<br>
+API开放平台：api.kourichat.com<br>
+网盘分流：pan.quark.cn/s/c55dd13218ea<br>
+推荐使用雨云服务器挂机，首月五折：www.rainyun.com/kouri_<br>
+KouriChat已上架雨云预装软件列表<br>
+四群 1044107653<br>
 
 ### 🚀 功能特点
 
@@ -109,14 +115,7 @@ KouriChat/
 1. 确保满足前提条件并完成配置
 2. 运行主程序：`python run.py`或双击`run.bat`
 3. 程序将自动初始化系统，连接微信，并开始监听消息
-4. 可通过WebUI（http://localhost:7860）进行配置管理
-
-## 💡 开发计划
-
-- 智能任务调度系统
-- 记忆优化（8B小型模型）
-- 分布式负载均衡
-- 数学公式渲染
+4. 可通过WebUI进行配置管理
 
 ## ⚠️ 免责声明
 
@@ -145,6 +144,8 @@ KouriChat/
 三群（已满）1038190753
 四群 1044107653
 - 邮箱：yangchenglin2004@foxmail.com
+
+
 
 ---
 
