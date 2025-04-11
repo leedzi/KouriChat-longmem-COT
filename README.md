@@ -2,6 +2,11 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B5B84)](https://www.python.org/downloads/)
 [![版本](https://img.shields.io/badge/版本-1.4.0-ff69b4?style=for-the-badge)]()
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=KouriChat/KouriChat&type=Timeline)](https://www.star-history.com/#KouriChat/KouriChat&Timeline)
+
+##赞助项目
 
 ## 📝 项目简介
 
@@ -135,7 +140,10 @@ KouriChat/
 
 ## 📞 联系方式
 
-- QQ群：715616260
+- QQ群：一群（已满）715616260
+二群（已满）1031640399
+三群（已满）1038190753
+四群 1044107653
 - 邮箱：yangchenglin2004@foxmail.com
 
 ---
