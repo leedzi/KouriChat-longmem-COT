@@ -1,154 +1,30 @@
-# 🌸 KouriChat - 虚拟与现实交织，温柔永恒的陪伴
+关于此 Fork (特殊的记忆系统修改)
+这是一个基于 KouriChat 项目的个人修改版本，主要目标是将 v1.3.9 版本重构后的记忆系统机制，恢复为类似于 v1.3.7 版本之前的长期累积记忆模式。
 
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B5B84)](https://www.python.org/downloads/)
-[![版本](https://img.shields.io/badge/版本-1.4.0-ff69b4?style=for-the-badge)]()
-## Star History
+原版在 v1.3.9 之后引入了“核心记忆”系统，该系统每隔 10 轮对话会刷新一次，用新的摘要覆盖旧的。虽然这可能带来更精炼的核心信息，但也可能导致一些用户觉得记忆保留时间不够长或容易丢失细节。
 
-[![Star History Chart](https://api.star-history.com/svg?repos=KouriChat/KouriChat&type=Timeline)](https://www.star-history.com/#KouriChat/KouriChat&Timeline)
+本修改版旨在解决这个问题，采用了如下不同的记忆处理逻辑：
 
-## 赞助项目
-![image](https://github.com/KouriChat/KouriChat/blob/main/data/images/img/qrcode.jpg)
-## 📝 项目简介
+短期记忆 (short_memory.txt):
 
-KouriChat是一个基于人工智能的微信聊天机器人，能够实现角色扮演、智能对话、图像生成与识别、语音消息和持久化记忆等功能。本项目旨在打造一个能够提供温柔陪伴的AI助手，通过微信平台与用户进行无缝交互。<br>
-官网：kourichat.com<br>
-API开放平台：api.kourichat.com<br>
-网盘分流：pan.quark.cn/s/c55dd13218ea<br>
-推荐使用雨云服务器挂机，首月五折：www.rainyun.com/kouri_<br>
-KouriChat已上架雨云预装软件列表<br>
-四群 1044107653<br>
-文字版使用说明：https://kourichat.com/docs_0411/<br>
+仍然记录用户与 AI 的对话。
+触发方式改变: 不再基于固定的对话轮数（10轮），而是当短期记忆文件的行数达到一个阈值（默认约 30 行，对应 15 轮对话）时触发总结。
+文件格式为 .txt。
+长期记忆缓冲区 (long_memory_buffer.txt):
 
-### 🚀 功能特点
+取代了原版的 core_memory.json 文件。
+累积存储: 当短期记忆触发总结时，生成的对话摘要会被追加到这个文件的末尾，并附带时间戳。记忆会随着时间推移不断增长。
+文件格式为 .txt。
+记忆管理实现 (modules/memory/memory_service.py):
 
-- **微信无缝集成**：支持多用户、群聊和私聊场景
-- **沉浸式角色扮演**：可配置不同角色和人格
-- **智能对话分段**：自然流畅的对话体验
-- **情感表情包**：增强交流的情感表达
-- **图像生成与识别**：支持图片理解和生成
-- **语音消息支持**：实现语音交互
-- **持久化记忆**：记住与用户的历史对话
-- **自动更新**：保持系统最新
-- **可视化Web界面**：方便的配置管理
+add_conversation(): 加入了检查短期记忆文件行数并在达到阈值时调用总结流程的逻辑。
+update_core_memory(): 功能被完全重写。现在它的作用是执行“读取短期记忆 -> 调用 LLM 总结 -> 将总结追加到长期记忆缓冲区 -> 清空短期记忆”这一系列操作。这个函数名是为了保持对项目其他部分调用的兼容性。
+get_core_memory(): 功能被修改。为了尽可能兼容原版调用，此函数现在读取长期记忆缓冲区文件，并返回最后一次记录在文件中的总结内容。这提供了一种获取部分长期记忆的方式，但它不能像旧版那样根据当前用户输入智能检索最相关的多条记忆。
+get_recent_context(): 功能保留，但现在从 .txt 格式的短期记忆文件中读取，并且因为短期记忆会在总结后清空，它能提供的上下文通常会少于 15 轮。
+(新增) get_relevant_memories(): 添加了这个方法，包含了旧版根据用户查询从长期记忆中检索最相关 N 条总结的核心逻辑。但请注意，项目中的其他代码默认并未修改为调用此方法。如果需要完整的相关记忆检索能力，需要进一步修改调用方的代码。
+重要提醒:
 
-## 🛠️ 快速开始
-
-### 前提条件
-
-1. **辅助设备**：需要一个辅助手机/模拟器/多开应用（微信PC登录需要手机同时在线）
-2. **微信小号**：能够PC端登录的微信账号
-3. **API密钥**：需要获取DeepSeek等AI服务的API密钥
-
-### 部署方法
-
-#### 半自动设置
-```bash
-运行 "run.bat"
-```
-
-#### 手动设置
-```bash
-# 安装依赖
-pip install -r requirements.txt
-
-# 配置设置
-python run_config_web.py
-
-# 启动程序
-python run.py
-```
-
-## 🧩 项目结构
-
-```
-KouriChat/
-├── .github/                     # GitHub配置
-├── .git/                        # Git仓库
-├── data/                        # 运行时数据存储
-├── logs/                        # 日志文件
-├── modules/
-│   ├── memory/                  # 记忆管理模块
-│   └── reminder/                # 提醒服务模块
-├── src/
-│   ├── AutoTasker/              # 自动任务系统
-│   ├── autoupdate/              # 自动更新功能
-│   ├── config/                  # 配置管理
-│   ├── handlers/                # 功能处理器
-│   ├── services/                # AI服务接口
-│   ├── utils/                   # 实用工具库
-│   ├── webui/                   # 可视化配置UI
-│   ├── main.py                  # 主程序入口
-│   └── avatar_manager.py        # 角色管理
-├── wxauto文件/                   # 微信自动化相关文件
-├── requirements.txt             # 项目依赖
-├── run.bat                      # Windows运行脚本
-├── run.py                       # 主程序启动脚本
-├── run_config_web.py            # Web配置启动脚本
-└── version.json                 # 版本控制
-```
-
-## 📋 依赖项
-
-项目主要依赖：
-- colorama：控制台彩色输出
-- Flask：Web服务框架
-- openai：OpenAI API接口
-- wxauto：微信自动化框架
-- SQLAlchemy：数据库ORM
-- APScheduler：任务调度
-- pandas：数据处理
-- jieba：中文分词
-- 其他详见requirements.txt
-
-## 🔧 配置说明
-
-项目配置文件位于`src/config/config.json`，包括以下主要配置项：
-
-1. **LLM配置**：API密钥、基础URL、模型选择、最大Token等
-2. **用户设置**：监听列表、自动回复设置
-3. **行为设置**：角色定义、上下文管理
-4. **媒体设置**：图像生成、语音合成、图像识别
-
-可以通过运行`run_config_web.py`进入Web配置界面进行可视化配置。
-
-## 🚀 使用方法
-
-1. 确保满足前提条件并完成配置
-2. 运行主程序：`python run.py`或双击`run.bat`
-3. 程序将自动初始化系统，连接微信，并开始监听消息
-4. 可通过WebUI进行配置管理
-
-## ⚠️ 免责声明
-
-**法律与道德指南**
-- 本项目仅用于技术研究和教育目的
-- 禁止用于任何非法或不道德用途
-- 生成的内容不代表开发者立场
-
-**使用条款**
-- 角色版权归原创者所有
-- 用户对自己的行为负全部责任
-- 未成年人应在监护人的监督下使用
-
-## 🧑‍💻 技术栈
-
-- Python 3.11+
-- wxauto自动化框架
-- OpenAI/DeepSeek API
-- Flask Web框架
-- SQLAlchemy ORM
-
-## 📞 联系方式
-
-- QQ群：一群（已满）715616260
-二群（已满）1031640399
-三群（已满）1038190753
-四群 1044107653
-- 邮箱：yangchenglin2004@foxmail.com
-
-
-
----
-
-**版本：** 1.3.9  
-**最后更新：** 2025-03-25 
+此版本不是 KouriChat 官方版本。
+由于 get_core_memory 的行为调整，AI 对过去信息的“回忆”能力可能与你对旧版（v1.3.7）的预期略有不同（除非你修改代码以使用 get_relevant_memories）。
+本修改基于特定版本的 KouriChat 代码，可能与官方后续的更新产生冲突。
+使用前建议备份或清理旧的记忆文件 (.json 格式的文件)。
