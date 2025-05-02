@@ -11,8 +11,9 @@
 
 主要修改了 modules/memory/memory_service.py 文件。
 为了尽可能保持与新版代码结构的兼容性，保留了原有的函数名（如 update_core_memory, get_core_memory），但其内部逻辑已被替换为旧版的总结、追加和检索（部分模拟）功能。
-请注意：
 
+请注意：
 get_core_memory 函数现在返回的是长期记忆缓冲区中最近一次生成的记忆总结，这是一个为了兼容性而采取的折衷方案，它不完全等同于旧版按需检索最相关记忆的行为（相关检索逻辑已添加为 get_relevant_memories 方法，但需要项目其他部分调用才能生效）。
 此修改可能与 KouriChat 官方的未来更新不兼容。
+
 原始项目仓库： https://github.com/KouriChat/KouriChat
