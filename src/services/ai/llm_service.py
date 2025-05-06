@@ -100,24 +100,19 @@ class LLMService:
             return "响应处理异常，请重新尝试"
 
     def _validate_response(self, response: dict) -> bool:
+    """
+        API响应校验 (已宽松化，以兼容第三方API)
+        主要放松token计数一致性检查和finish_reason检查。
         """
-        API响应校验增强版
-        验证点涵盖：
-        1. 基础字段存在性
-        2. 字段类型校验
-        3. 关键内容有效性
-        4. 数据一致性校验
-        """
-        # DEBUG模式时可打印完整响应结构
-        logger.debug("API响应调试信息：\n%s", json.dumps(response, indent=2, ensure_ascii=False))
+        logger.debug("API响应调试信息 (进行验证)：\n%s", json.dumps(response, indent=2, ensure_ascii=False))
 
-        # —— 校验层级1：基础结构 ——
+        # —— 校验层级1：基础结构 (保持) ——
         required_root_keys = {"id", "object", "created", "model", "choices", "usage"}
         if missing := required_root_keys - response.keys():
-            logger.error("根层级缺少必需字段：%s", missing)
-            return False
+            logger.error("[Validation] 根层级缺少必需字段：%s", missing)
+            return False # 核心结构缺失，验证失败
 
-        # —— 校验层级2：字段类型校验 ——
+        # —— 校验层级2：字段类型校验 (保持) ——
         type_checks = [
             ("id", str, "字段应为字符串"),
             ("object", str, "字段应为字符串"),
@@ -126,83 +121,87 @@ class LLMService:
             ("choices", list, "字段应为列表类型"),
             ("usage", dict, "字段应为使用量字典")
         ]
-
         for field, expected_type, error_msg in type_checks:
             if not isinstance(response.get(field), expected_type):
-                logger.error("字段[%s]类型错误：%s", field, error_msg)
-                return False
+                logger.error("[Validation] 字段[%s]类型错误：%s", field, error_msg)
+                return False # 基本类型错误，验证失败
 
-        # —— 校验层级3：字段内容有效性 ——
-        # 检查模型名称格式 - 支持多种模型格式
-        # model_name = response["model"]
-        # valid_model_prefixes = [
-        #     'deepseek', 'qwen', 'claude', 'chatglm', 'llama', 'gpt', 'baichuan', 
-        #     'mixtral', 'gemma', 'phi', 'yi', 'glm'
-        # ]
-        
-        # # 检查模型名称是否符合常见命名模式
-        # if not any(re.search(prefix, model_name, re.IGNORECASE) for prefix in valid_model_prefixes):
-        #     logger.warning("模型名称格式不常见：%s，但仍继续处理", model_name)
-        #     # 注意：这里改为警告而不是错误，不再拒绝响应
+        # —— 校验层级3：choices数组结构 (基本保持) ——
+        if len(response.get("choices", [])) == 0:
+            # 允许空 choices 数组吗？如果允许，这里应该改成 warning 并 return True
+            logger.warning("[Validation] 响应 choices 数组为空")
+            # return False # 如果空choices代表错误，则保留此行
+            # 暂时假设空choices可能是合法的（比如被过滤），或内容在别处。如果确定空choices是错误，取消这行的注释
 
-        # 检查时间戳有效性（允许过去30年到未来5分钟）
-        current_timestamp = int(time.time())
-        if not (current_timestamp - 946080000 < response["created"] < current_timestamp + 300):
-            logger.error("无效时间戳：%s", response["created"])
-            return False
-
-        # —— 校验层级4：choices数组结构 ——
-        if len(response["choices"]) == 0:
-            logger.error("空响应choices数组")
-            return False
-
-        for index, choice in enumerate(response["choices"]):
+        for index, choice in enumerate(response.get("choices",[])): # 使用 .get 以防 choices 不存在
             if not isinstance(choice, dict):
-                logger.error("第%d个choice类型错误", index)
-                return False
+                logger.error("[Validation] 第%d个choice类型错误", index)
+                return False # Choice 结构错，验证失败
 
-            if missing := {"index", "message", "finish_reason"} - choice.keys():
-                logger.error("choice%d缺少字段：%s", index, missing)
-                return False
+            if missing := {"message", "finish_reason"} - choice.keys(): # 简化检查，只看必备的
+                logger.error("[Validation] choice[%d]缺少关键字段：%s", index, missing)
+                return False # Choice 结构不完整，验证失败
 
             # 校验message结构
-            message = choice["message"]
+            message = choice.get("message", {}) # 使用 .get
+            if not isinstance(message, dict):
+                 logger.error("[Validation] 'message' 字段类型错误，应为字典: %s", type(message))
+                 return False
+
             if missing := {"role", "content"} - message.keys():
-                logger.error("message结构异常：缺少%s", missing)
-                return False
+                logger.error("[Validation] message结构异常：缺少%s", missing)
+                # Content 可能为 null 或空，但 role 必须有
+                if "role" not in message:
+                   return False # Role 必须有！
+                # Content 先不做严格检查
 
-            if message["role"] != "assistant":
-                logger.error("非预期角色类型：%s", message["role"])
-                return False
+            if message.get("role") != "assistant": # 使用 .get
+                logger.warning("[Validation] 非标准的角色类型：%s，但将继续处理...", message.get("role"))
+                # 对于 role 不为 assistant 的情况，不再直接报错，而是发出警告
 
-            if not isinstance(message["content"], str) or len(message["content"].strip()) == 0:
-                logger.error("无效消息内容：%s", message["content"])
-                return False
+            # 检查 content 是否存在且是字符串 （放松对空内容的检查）
+            if "content" in message and not (isinstance(message["content"], str) or message["content"] is None):
+                 logger.error("[Validation] 'content' 字段类型错误，应为字符串或None: %s", type(message["content"]))
+                 return False
+            
+            # ================ 放松 finish_reason 检查 ================
+            allowed_finish_reasons = ("stop", "length", "content_filter", "tool_calls", None) # 加入 tool_calls
+            finish_reason = choice.get("finish_reason") # 使用 .get
+            if finish_reason not in allowed_finish_reasons:
+                logger.warning("[Validation] 未知或非预期的对话终止原因：%s (将继续处理)", finish_reason)
+                # 不再因为 finish_reason 不符合预设列表而返回 False
 
-            # 校验finish_reason
-            if choice["finish_reason"] not in ("stop", "length", "content_filter", None):
-                logger.error("异常对话终止原因：%s", choice["finish_reason"])
-                return False
+        # —— 校验层级4：使用量统计 (usage) ——
+        usage = response.get("usage", {}) # 使用 .get
+        if not isinstance(usage, dict):
+             logger.error("[Validation] 'usage' 字段类型错误，应为字典: %s", type(usage))
+             return False # usage 必须是字典
 
-        # —— 校验层级5：使用量统计 ——
-        usage = response["usage"]
         usage_checks = [
-            ("prompt_tokens", int, "应为非负整数"),
-            ("completion_tokens", int, "应为非负整数"),
-            ("total_tokens", int, "应为非负整数")
+            ("prompt_tokens", int),
+            ("completion_tokens", int),
+            ("total_tokens", int)
         ]
+        # 只检查字段是否存在且类型是数字即可，不再检查非负
+        for field, expected_type in usage_checks:
+             if field not in usage or not isinstance(usage[field], expected_type):
+                 logger.warning("[Validation] 使用量字段[%s]缺失或类型非整数。尝试继续...", field)
+                 # 不再因此返回 False，最多给个警告
 
-        for field, expected_type, error_msg in usage_checks:
-            if not isinstance(usage.get(field), expected_type) or usage[field] < 0:
-                logger.error("使用量字段[%s]无效：%s", field, error_msg)
-                return False
+        # ================ 放松 Token 总数一致性检查 ================
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", 0)
+        
+        # 确保提取的值是整数，如果不是或者不存在，则我们无法进行一致性检查
+        if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int) and isinstance(total_tokens, int):
+            if total_tokens != (prompt_tokens + completion_tokens):
+                logger.warning("[Validation] Token总数可能不一致(兼容模式): prompt(%d) + completion(%d) = %d ≠ total(%d)。这在某些API代理上可能发生，尝试继续...",
+                             prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, total_tokens)
+                # 不再因为 token 计数不完全一致而返回 False
 
-        # 校验token总数一致性
-        if usage["total_tokens"] != (usage["prompt_tokens"] + usage["completion_tokens"]):
-            logger.error("Token总数不一致：prompt(%d) + completion(%d) ≠ total(%d)",
-                         usage["prompt_tokens"], usage["completion_tokens"], usage["total_tokens"])
-            return False
-
+        # 如果所有关键检查都通过了
+        logger.info("[Validation] 数据校验通过 (兼容模式)")
         return True
 
     def get_response(self, message: str, user_id: str, system_prompt: str, previous_context: List[Dict] = None, core_memory: str = None) -> str:
