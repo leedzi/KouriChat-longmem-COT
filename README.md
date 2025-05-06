@@ -16,3 +16,5 @@ get_core_memory 函数现在返回的是长期记忆缓冲区中最近一次生�
 此修改可能与 KouriChat 官方的未来更新不兼容。
 
 原始项目仓库： https://github.com/KouriChat/KouriChat
+
+后续更新详见releases
