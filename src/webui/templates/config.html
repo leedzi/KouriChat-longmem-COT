@@ -372,40 +372,6 @@
             color: #fff;
         }
         
-        /* 添加日期选择按钮组的响应式样式 */
-        .btn-group.flex-wrap {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.25rem;
-        }
-
-        .btn-group.flex-wrap .btn {
-            flex: 1 1 calc(14.28% - 0.25rem);
-            min-width: 40px;
-            padding: 0.375rem 0.5rem;
-            font-size: 0.875rem;
-            text-align: center;
-        }
-
-        /* 在小屏幕上调整按钮大小 */
-        @media (max-width: 768px) {
-            .btn-group.flex-wrap .btn {
-                flex: 1 1 calc(33.33% - 0.25rem);
-                min-width: 30px;
-                padding: 0.25rem 0.375rem;
-                font-size: 0.75rem;
-            }
-        }
-
-        /* 在更小的屏幕上进一步调整 */
-        @media (max-width: 480px) {
-            .btn-group.flex-wrap .btn {
-                flex: 1 1 calc(50% - 0.25rem);
-                min-width: 25px;
-                padding: 0.25rem;
-                font-size: 0.75rem;
-            }
-        }
     </style>
     <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
@@ -419,8 +385,13 @@
             <!-- 左侧基础配置 -->
             <div class="col-md-6 pe-md-2">
                 <div class="config-section h-100">
-                    <h4 class="mb-4">
-                        <i class="bi bi-gear-fill me-2"></i>基础配置
+                    <h4 class="mb-4 d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-gear-fill me-2"></i>基础配置
+                        </div>
+                        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#historyConfigModal">
+                            <i class="bi bi-clock-history me-2"></i>历史配置
+                        </button>
                     </h4>
                     <form id="configForm">
                         {% for group_name, configs in config_groups.items() %}
@@ -487,8 +458,7 @@
                                 <h2 class="accordion-header">
                                     <button class="accordion-button collapsed" type="button" 
                                             data-bs-toggle="collapse" 
-                                            data-bs-target="#schedule-settings"
-                                            style="color: rgb(0, 0, 0); ">
+                                            data-bs-target="#schedule-settings">
                                         定时任务配置
                                     </button>
                                 </h2>
@@ -621,7 +591,7 @@
 
     <!-- 添加任务模态框 -->
     <div class="modal fade" id="addTaskModal" tabindex="-1" aria-labelledby="addTaskModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="addTaskModalLabel">
@@ -631,153 +601,65 @@
                 </div>
                 <div class="modal-body">
                     <form id="taskForm">
-                        <div class="row">
-                            <!-- 左侧：基本信息 -->
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label class="form-label">
-                                        <i class="bi bi-key me-2"></i>任务ID
-                                    </label>
-                                    <input type="text" class="form-control" id="taskId" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">
-                                        <i class="bi bi-person me-2"></i>发送对象
-                                    </label>
-                                    <select class="form-select" id="taskChatId" required>
-                                        <option value="">请选择发送对象</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">
-                                        <i class="bi bi-chat-text me-2"></i>消息内容
-                                    </label>
-                                    <textarea class="form-control" id="taskContent" rows="3" required></textarea>
-                                </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-key me-2"></i>任务ID
+                            </label>
+                            <input type="text" class="form-control" id="taskId" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-person me-2"></i>发送对象
+                            </label>
+                            <select class="form-select" id="taskChatId" required>
+                                <!-- 将通过JS动态填充 -->
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-chat-text me-2"></i>消息内容
+                            </label>
+                            <textarea class="form-control" id="taskContent" rows="3" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-alarm me-2"></i>定时类型
+                            </label>
+                            <select class="form-select" id="scheduleType" onchange="toggleScheduleInput()">
+                                <option value="cron">Cron表达式</option>
+                                <option value="interval">时间间隔</option>
+                            </select>
+                        </div>
+                        <div id="intervalInputGroup" class="mb-3" style="display: none;">
+                            <label class="form-label">
+                                <i class="bi bi-hourglass-split me-2"></i>间隔时间（小时）
+                            </label>
+                            <input type="number" class="form-control" id="intervalHours" 
+                                   min="0.1" step="0.1" placeholder="例如：1.5">
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                设置任务每隔多少小时执行一次：
+                                <ul class="mb-0 mt-1">
+                                    <li>0.5 = 每30分钟执行一次</li>
+                                    <li>1 = 每1小时执行一次</li>
+                                    <li>24 = 每天执行一次</li>
+                                </ul>
                             </div>
-                            
-                            <!-- 右侧：定时设置 -->
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label class="form-label">
-                                        <i class="bi bi-alarm me-2"></i>定时类型
-                                    </label>
-                                    <select class="form-select" id="scheduleType" onchange="toggleScheduleInput()">
-                                        <option value="cron">Cron表达式</option>
-                                        <option value="interval">时间间隔</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- Cron表达式设置 -->
-                                <div id="cronInputGroup" class="mb-3">
-                                    <label class="form-label">
-                                        <i class="bi bi-calendar3 me-2"></i>执行时间
-                                    </label>
-                                    <div class="row g-2">
-                                        <div class="col-6">
-                                            <select class="form-select" id="cronHour">
-                                                <option value="*">每小时</option>
-                                                <option value="0">0点</option>
-                                                <option value="1">1点</option>
-                                                <option value="2">2点</option>
-                                                <option value="3">3点</option>
-                                                <option value="4">4点</option>
-                                                <option value="5">5点</option>
-                                                <option value="6">6点</option>
-                                                <option value="7">7点</option>
-                                                <option value="8">8点</option>
-                                                <option value="9">9点</option>
-                                                <option value="10">10点</option>
-                                                <option value="11">11点</option>
-                                                <option value="12">12点</option>
-                                                <option value="13">13点</option>
-                                                <option value="14">14点</option>
-                                                <option value="15">15点</option>
-                                                <option value="16">16点</option>
-                                                <option value="17">17点</option>
-                                                <option value="18">18点</option>
-                                                <option value="19">19点</option>
-                                                <option value="20">20点</option>
-                                                <option value="21">21点</option>
-                                                <option value="22">22点</option>
-                                                <option value="23">23点</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-6">
-                                            <select class="form-select" id="cronMinute">
-                                                <option value="0">整点</option>
-                                                <option value="30">30分</option>
-                                                <option value="15">15分</option>
-                                                <option value="45">45分</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="mt-2">
-                                        <label class="form-label">
-                                            <i class="bi bi-calendar-week me-2"></i>执行周期
-                                        </label>
-                                        <div class="btn-group w-100 flex-wrap" role="group">
-                                            <input type="checkbox" class="btn-check" id="cronWeekday1" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday1">一</label>
-                                            
-                                            <input type="checkbox" class="btn-check" id="cronWeekday2" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday2">二</label>
-                                            
-                                            <input type="checkbox" class="btn-check" id="cronWeekday3" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday3">三</label>
-                                            
-                                            <input type="checkbox" class="btn-check" id="cronWeekday4" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday4">四</label>
-                                            
-                                            <input type="checkbox" class="btn-check" id="cronWeekday5" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday5">五</label>
-                                            
-                                            <input type="checkbox" class="btn-check" id="cronWeekday6" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday6">六</label>
-                                            
-                                            <input type="checkbox" class="btn-check" id="cronWeekday7" autocomplete="off">
-                                            <label class="btn btn-outline-primary flex-fill" for="cronWeekday7">日</label>
-                                        </div>
-                                    </div>
-                                    <!-- 添加隐藏的cron表达式输入框 -->
-                                    <input type="hidden" id="cronExpression" value="">
-                                </div>
-                                
-                                <!-- 时间间隔设置 -->
-                                <div id="intervalInputGroup" class="mb-3" style="display: none;">
-                                    <label class="form-label">
-                                        <i class="bi bi-hourglass-split me-2"></i>间隔时间
-                                    </label>
-                                    <div class="input-group">
-                                        <input type="number" class="form-control" id="intervalValue" 
-                                               min="1" step="1" placeholder="输入数值">
-                                        <select class="form-select" id="intervalUnit" style="max-width: 120px;">
-                                            <option value="60">分钟</option>
-                                            <option value="3600">小时</option>
-                                            <option value="86400">天</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-text">
-                                        <i class="bi bi-info-circle me-1"></i>
-                                        常用间隔：
-                                        <div class="btn-group mt-1">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setInterval(30, '60')">30分钟</button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setInterval(1, '3600')">1小时</button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setInterval(2, '3600')">2小时</button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setInterval(24, '3600')">1天</button>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- 预览 -->
-                                <div class="mt-3">
-                                    <label class="form-label">
-                                        <i class="bi bi-eye me-2"></i>执行时间预览
-                                    </label>
-                                    <div id="schedulePreview" class="form-control bg-light">
-                                        请选择定时类型和设置
-                                    </div>
-                                </div>
+                        </div>
+                        <div id="cronInputGroup" class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-calendar3 me-2"></i>Cron表达式
+                            </label>
+                            <input type="text" class="form-control" id="cronExpression" 
+                                   placeholder="例如：0 9 * * * (每天9点)">
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                格式：分 时 日 月 星期，常用示例：
+                                <ul class="mb-0 mt-1">
+                                    <li>0 9 * * * = 每天早上9点</li>
+                                    <li>0 */2 * * * = 每2小时整点</li>
+                                    <li>0 9-18 * * * = 每天9点到18点的整点</li>
+                                </ul>
                             </div>
                         </div>
                     </form>
@@ -785,6 +667,32 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                     <button type="button" class="btn btn-primary" onclick="saveTask()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加历史配置模态框 -->
+    <div class="modal fade" id="historyConfigModal" tabindex="-1" aria-labelledby="historyConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="historyConfigModalLabel">
+                        <i class="bi bi-clock-history me-2"></i>历史配置
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="list-group" id="historyConfigList">
+                        <!-- 历史配置列表将通过JavaScript动态填充 -->
+                        <div class="text-center text-muted p-4">
+                            <i class="bi bi-inbox fs-2"></i>
+                            <p class="mt-2">暂无历史配置记录</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
                 </div>
             </div>
         </div>
@@ -916,6 +824,14 @@
                     }
                 })
                 .catch(error => console.error('Error:', error));
+
+            // 添加到现有的DOMContentLoaded事件处理程序中
+            updateHistoryConfigList();
+            
+            // 为历史配置模态框添加显示事件
+            document.getElementById('historyConfigModal').addEventListener('show.bs.modal', function() {
+                updateHistoryConfigList();
+            });
         });
 
         // 更新所有配置项的函数
@@ -973,7 +889,260 @@
             }
         }
 
-        // 保存配置的函数
+        // 修改保存配置到cookie的函数
+        function saveConfigToCookie(config) {
+            // 提取需要保存的关键配置
+            const keyConfigs = {
+                timestamp: new Date().toISOString(),
+                LISTEN_LIST: config.LISTEN_LIST || [],
+                DEEPSEEK_API_KEY: config.DEEPSEEK_API_KEY || '',
+                DEEPSEEK_BASE_URL: config.DEEPSEEK_BASE_URL || '',
+                MODEL: config.MODEL || '',
+                MOONSHOT_API_KEY: config.MOONSHOT_API_KEY || ''
+            };
+            
+            // 检查是否有有效数据
+            const hasValidData = 
+                (keyConfigs.LISTEN_LIST && keyConfigs.LISTEN_LIST.length > 0) || 
+                keyConfigs.DEEPSEEK_API_KEY || 
+                keyConfigs.DEEPSEEK_BASE_URL ||
+                keyConfigs.MODEL || 
+                keyConfigs.MOONSHOT_API_KEY;
+            
+            if (!hasValidData) {
+                console.log('没有有效数据，不保存到cookie');
+                return;
+            }
+            
+            // 获取现有的历史配置
+            let historyConfigs = getCookieConfigs();
+            
+            // 检查是否已存在相同配置
+            const isDuplicate = historyConfigs.some(item => 
+                JSON.stringify([
+                    item.LISTEN_LIST, 
+                    item.DEEPSEEK_API_KEY, 
+                    item.DEEPSEEK_BASE_URL,
+                    item.MODEL, 
+                    item.MOONSHOT_API_KEY
+                ]) === 
+                JSON.stringify([
+                    keyConfigs.LISTEN_LIST, 
+                    keyConfigs.DEEPSEEK_API_KEY, 
+                    keyConfigs.DEEPSEEK_BASE_URL,
+                    keyConfigs.MODEL, 
+                    keyConfigs.MOONSHOT_API_KEY
+                ])
+            );
+            
+            if (isDuplicate) {
+                console.log('配置已存在，不重复保存');
+                return;
+            }
+            
+            // 限制历史记录数量为10条
+            if (historyConfigs.length >= 10) {
+                historyConfigs.pop(); // 移除最旧的配置
+            }
+            
+            // 添加新配置到历史记录开头
+            historyConfigs.unshift(keyConfigs);
+            
+            // 保存到cookie，有效期30天
+            const expiryDate = new Date();
+            expiryDate.setDate(expiryDate.getDate() + 30);
+            document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+            
+            // 更新历史配置列表显示
+            updateHistoryConfigList();
+        }
+
+        // 从cookie获取历史配置
+        function getCookieConfigs() {
+            const cookieValue = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('historyConfigs='));
+            
+            if (cookieValue) {
+                try {
+                    return JSON.parse(cookieValue.split('=')[1]);
+                } catch (e) {
+                    console.error('解析历史配置失败:', e);
+                    return [];
+                }
+            }
+            
+            return [];
+        }
+
+        // 修改历史配置列表显示函数，添加更多信息显示
+        function updateHistoryConfigList() {
+            const historyConfigs = getCookieConfigs();
+            const container = document.getElementById('historyConfigList');
+            
+            if (!container) return;
+            
+            if (historyConfigs.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-muted p-4">
+                        <i class="bi bi-inbox fs-2"></i>
+                        <p class="mt-2">暂无历史配置记录</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = historyConfigs.map((config, index) => {
+                const date = new Date(config.timestamp);
+                const formattedDate = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                
+                return `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="me-auto">
+                                <div class="d-flex align-items-center mb-1">
+                                    <span class="badge bg-primary me-2">配置 #${index + 1}</span>
+                                    <small class="text-muted">${formattedDate}</small>
+                                </div>
+                                <div class="mb-1">监听用户: ${config.LISTEN_LIST.join(', ') || '无'}</div>
+                                <div class="mb-1">AI模型: ${config.MODEL || '未设置'}</div>
+                                <div class="mb-1">API Base URL: ${config.DEEPSEEK_BASE_URL || '未设置'}</div>
+                                <div class="mb-1">API密钥: ${config.DEEPSEEK_API_KEY ? '已设置' : '未设置'}</div>
+                                <div class="mb-1">Moonshot密钥: ${config.MOONSHOT_API_KEY ? '已设置' : '未设置'}</div>
+                            </div>
+                            <div>
+                                <button class="btn btn-danger btn-sm me-2" onclick="deleteHistoryConfig(${index})">
+                                    <i class="bi bi-trash me-1"></i>删除
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="applyHistoryConfig(${index})">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>应用
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 修改应用历史配置函数
+        function applyHistoryConfig(index) {
+            const historyConfigs = getCookieConfigs();
+            if (index >= historyConfigs.length) return;
+            
+            const config = historyConfigs[index];
+            
+            // 应用监听用户列表
+            if (config.LISTEN_LIST && Array.isArray(config.LISTEN_LIST)) {
+                const userListElement = document.getElementById('selected_users_LISTEN_LIST');
+                const listenListInput = document.getElementById('LISTEN_LIST');
+                
+                if (userListElement && listenListInput) {
+                    // 清空现有用户
+                    userListElement.innerHTML = '';
+                    
+                    // 添加历史用户
+                    config.LISTEN_LIST.forEach(user => {
+                        if (user) {
+                            const userDiv = document.createElement('div');
+                            userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            userDiv.innerHTML = `
+                                ${user}
+                                <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('LISTEN_LIST', '${user}')">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            `;
+                            userListElement.appendChild(userDiv);
+                        }
+                    });
+                    
+                    // 更新隐藏输入框
+                    listenListInput.value = config.LISTEN_LIST.join(',');
+                }
+            }
+            
+            // 应用DeepSeek API密钥
+            if (config.DEEPSEEK_API_KEY) {
+                const apiKeyInput = document.getElementById('DEEPSEEK_API_KEY') || 
+                                   document.querySelector('input[name="DEEPSEEK_API_KEY"]');
+                if (apiKeyInput) {
+                    apiKeyInput.value = config.DEEPSEEK_API_KEY;
+                }
+            }
+            
+            // 应用DeepSeek Base URL
+            if (config.DEEPSEEK_BASE_URL) {
+                const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
+                const apiProviderSelect = document.getElementById('api_provider_select');
+                const customApiInput = document.getElementById('customApiInput');
+                
+                if (baseUrlInput && apiProviderSelect) {
+                    baseUrlInput.value = config.DEEPSEEK_BASE_URL;
+                    
+                    // 检查是否是预定义的URL
+                    const matchingOption = Array.from(apiProviderSelect.options).find(opt => {
+                        return opt.dataset.url === config.DEEPSEEK_BASE_URL;
+                    });
+                    
+                    if (matchingOption) {
+                        apiProviderSelect.value = matchingOption.value;
+                        if (customApiInput) {
+                            customApiInput.style.display = 'none';
+                        }
+                    } else {
+                        apiProviderSelect.value = 'custom';
+                        if (customApiInput) {
+                            customApiInput.style.display = 'block';
+                            const input = customApiInput.querySelector('input');
+                            if (input) {
+                                input.value = config.DEEPSEEK_BASE_URL;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 应用模型
+            if (config.MODEL) {
+                const modelInput = document.getElementById('MODEL');
+                const modelSelect = document.getElementById('model_select');
+                if (modelInput) {
+                    modelInput.value = config.MODEL;
+                    if (modelSelect) {
+                        modelSelect.value = config.MODEL;
+                        if (!Array.from(modelSelect.options).some(opt => opt.value === config.MODEL)) {
+                            modelSelect.value = 'custom';
+                            const customModelInput = document.getElementById('customModelInput');
+                            if (customModelInput) {
+                                customModelInput.style.display = 'block';
+                                const input = customModelInput.querySelector('input');
+                                if (input) input.value = config.MODEL;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 应用Moonshot API密钥
+            if (config.MOONSHOT_API_KEY) {
+                const imgApiKeyInput = document.getElementById('MOONSHOT_API_KEY') || 
+                                      document.querySelector('input[name="MOONSHOT_API_KEY"]');
+                if (imgApiKeyInput) {
+                    imgApiKeyInput.value = config.MOONSHOT_API_KEY;
+                }
+            }
+            
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('historyConfigModal'));
+            if (modal) modal.hide();
+            
+            // 显示提示
+            showSaveNotification('已应用历史配置，请点击保存按钮保存更改');
+            
+            // 更新任务对话框中的发送对象选项
+            updateTaskChatIdOptions();
+        }
+
+        // 修改保存配置的函数，添加保存到cookie的功能
         function saveConfig(config) {
             // 发送保存请求
             fetch('/save', {
@@ -986,13 +1155,12 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
+                    // 保存成功后，将配置保存到cookie
+                    saveConfigToCookie(config);
                     showSaveNotification(data.message);
                 } else {
                     showSaveNotification(data.message, 'error');
                 }
-            })
-            .catch(error => {
-                showSaveNotification('保存失败：' + error, 'error');
             });
         }
 
@@ -1164,124 +1332,51 @@
             toast.show();
         }
 
-        // 添加设置时间间隔的辅助函数
-        function setInterval(value, unit) {
-            document.getElementById('intervalValue').value = value;
-            document.getElementById('intervalUnit').value = unit;
-            updateSchedulePreview();
-        }
-
-        // 修改更新预览的函数
-        function updateSchedulePreview() {
-            const scheduleType = document.getElementById('scheduleType').value;
-            const preview = document.getElementById('schedulePreview');
+        // 修改显示添加任务模态框时的处理
+        document.getElementById('addTaskModal').addEventListener('show.bs.modal', function () {
+            // 重置表单
+            document.getElementById('taskForm').reset();
             
-            if (scheduleType === 'cron') {
-                const hour = document.getElementById('cronHour').value;
-                const minute = document.getElementById('cronMinute').value;
-                const weekdays = [];
-                
-                // 获取选中的星期
-                for (let i = 1; i <= 7; i++) {
-                    if (document.getElementById(`cronWeekday${i}`).checked) {
-                        // 将1-7转换为0-6（0代表周日）
-                        weekdays.push(i === 7 ? 0 : i - 1);
-                    }
-                }
-                
-                if (weekdays.length === 0) {
-                    preview.textContent = '请选择执行周期';
-                    return;
-                }
-                
-                let previewText = `每天 ${hour === '*' ? '每小时' : hour + '点'} ${minute}分`;
-                if (weekdays.length < 7) {
-                    previewText = `每周 ${weekdays.map(w => ['日', '一', '二', '三', '四', '五', '六'][w]).join('、')} ${hour === '*' ? '每小时' : hour + '点'} ${minute}分`;
-                }
-                
-                preview.textContent = previewText;
-                
-                // 更新cron表达式 - 修改为5字段格式
-                const cronExp = `${minute} ${hour} * * ${weekdays.join(',')}`;
-                document.getElementById('cronExpression').value = cronExp;
-            } else {
-                const value = document.getElementById('intervalValue').value;
-                const unit = document.getElementById('intervalUnit').value;
-                
-                if (!value) {
-                    preview.textContent = '请设置间隔时间';
-                    return;
-                }
-                
-                let unitText = '';
-                switch(unit) {
-                    case '60': unitText = '分钟'; break;
-                    case '3600': unitText = '小时'; break;
-                    case '86400': unitText = '天'; break;
-                }
-                
-                preview.textContent = `每 ${value} ${unitText}`;
-            }
-        }
-
-        // 修改格式化Cron表达式的函数
-        function formatCronExpression(cronExp) {
-            const [minute, hour, day, month, weekday] = cronExp.split(' ');
-            let result = '';
+            // 填充发送对象下拉框
+            const chatSelect = document.getElementById('taskChatId');
+            chatSelect.innerHTML = '<option value="">请选择发送对象</option>';
             
-            // 处理星期
-            if (weekday !== '*') {
-                const weekdays = weekday.split(',').map(w => ['日', '一', '二', '三', '四', '五', '六'][parseInt(w)]);
-                result += `每周${weekdays.join('、')} `;
-            } else {
-                result += '每天 ';
-            }
-            
-            // 处理时间
-            if (hour === '*') {
-                result += `每小时${minute}分`;
-            } else {
-                result += `${hour}点${minute}分`;
-            }
-            
-            return result;
-        }
-
-        // 修改切换调度类型输入框的函数
-        function toggleScheduleInput() {
-            const scheduleType = document.getElementById('scheduleType').value;
-            const cronInput = document.getElementById('cronInputGroup');
-            const intervalInput = document.getElementById('intervalInputGroup');
-            
-            if (scheduleType === 'cron') {
-                cronInput.style.display = 'block';
-                intervalInput.style.display = 'none';
-            } else {
-                cronInput.style.display = 'none';
-                intervalInput.style.display = 'block';
-            }
-            
-            updateSchedulePreview();
-        }
-
-        // 为所有相关输入添加change事件监听
-        document.addEventListener('DOMContentLoaded', function() {
-            const inputs = [
-                'cronHour', 'cronMinute',
-                'cronWeekday1', 'cronWeekday2', 'cronWeekday3',
-                'cronWeekday4', 'cronWeekday5', 'cronWeekday6', 'cronWeekday7',
-                'intervalValue', 'intervalUnit'
-            ];
-            
-            inputs.forEach(id => {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.addEventListener('change', updateSchedulePreview);
+            // 从监听列表获取用户
+            const userElements = document.querySelectorAll('#selected_users_LISTEN_LIST .list-group-item');
+            userElements.forEach(element => {
+                const userName = element.textContent.trim();
+                if (userName) {
+                    chatSelect.innerHTML += `<option value="${userName}">${userName}</option>`;
                 }
             });
+            
+            // 默认显示cron输入框
+            toggleScheduleInput();
         });
 
-        // 修改保存任务的函数
+        // 添加一个函数来更新任务对话框中的发送对象选项
+        function updateTaskChatIdOptions() {
+            const chatSelect = document.getElementById('taskChatId');
+            if (chatSelect) {
+                const currentValue = chatSelect.value;
+                chatSelect.innerHTML = '<option value="">请选择发送对象</option>';
+                
+                const userElements = document.querySelectorAll('#selected_users_LISTEN_LIST .list-group-item');
+                userElements.forEach(element => {
+                    const userName = element.textContent.trim();
+                    if (userName) {
+                        chatSelect.innerHTML += `<option value="${userName}">${userName}</option>`;
+                    }
+                });
+                
+                // 保持原来选中的值
+                if (currentValue) {
+                    chatSelect.value = currentValue;
+                }
+            }
+        }
+
+        // 添加保存任务的函数
         function saveTask() {
             const taskId = document.getElementById('taskId').value.trim();
             const chatId = document.getElementById('taskChatId').value;
@@ -1304,31 +1399,19 @@
             
             // 根据调度类型设置相应的值
             if (scheduleType === 'cron') {
-                const cronExp = document.getElementById('cronExpression').value;
+                const cronExp = document.getElementById('cronExpression').value.trim();
                 if (!cronExp) {
-                    showSaveNotification('请设置执行时间', 'error');
-                    return;
-                }
-                // 验证cron表达式格式
-                const [minute, hour, day, month, weekday] = cronExp.split(' ');
-                if (!/^\d+$/.test(minute) || !/^\d+$/.test(hour) || !/^[\d,]+$/.test(weekday)) {
-                    showSaveNotification('Cron表达式格式不正确', 'error');
+                    showSaveNotification('请输入Cron表达式', 'error');
                     return;
                 }
                 task.schedule_time = cronExp;
             } else {
-                const value = document.getElementById('intervalValue').value;
-                const unit = document.getElementById('intervalUnit').value;
-                
-                if (!value) {
-                    showSaveNotification('请设置间隔时间', 'error');
+                const hours = parseFloat(document.getElementById('intervalHours').value);
+                if (!hours || hours <= 0) {
+                    showSaveNotification('请输入有效的间隔时间', 'error');
                     return;
                 }
-                
-                // 计算总秒数
-                const totalSeconds = parseInt(value) * parseInt(unit);
-                task.schedule_time = totalSeconds.toString();
-                task.interval = totalSeconds.toString();
+                task.schedule_time = (hours * 3600).toString(); // 转换为秒并存储为字符串
             }
             
             // 获取现有的任务列表
@@ -1392,127 +1475,21 @@
                         <div class="me-auto">
                             <div class="d-flex align-items-center mb-1">
                                 <span class="badge bg-primary me-2">${task.task_id}</span>
-                                <span class="badge ${task.is_active ? 'bg-success' : 'bg-secondary'} me-2">
-                                    ${task.is_active ? '运行中' : '已暂停'}
-                                </span>
+                                <small class="text-muted">${task.schedule_type === 'cron' ? 
+                                    `Cron: ${task.schedule_time}` : 
+                                    `每 ${task.schedule_time.split(':')[0]}:${task.schedule_time.split(':')[1]}`}</small>
                             </div>
-                            <div class="mb-1">
-                                <i class="bi bi-person me-1"></i>发送给：${task.chat_id}
-                            </div>
-                            <div class="mb-1">
-                                <i class="bi bi-clock me-1"></i>执行时间：
-                                ${task.schedule_type === 'cron' ? 
-                                    formatCronExpression(task.schedule_time) : 
-                                    formatInterval(task.schedule_time)}
-                            </div>
-                            <div class="text-muted small">
-                                <i class="bi bi-chat-text me-1"></i>${task.content}
-                            </div>
+                            <div class="mb-1">发送给：${task.chat_id}</div>
+                            <small class="text-muted">${task.content}</small>
                         </div>
-                        <div class="btn-group">
-                            <button class="btn btn-sm btn-outline-primary" onclick="toggleTask('${task.task_id}')" title="${task.is_active ? '暂停任务' : '启动任务'}">
-                                <i class="bi bi-${task.is_active ? 'pause' : 'play'}-fill"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="deleteTask('${task.task_id}')" title="删除任务">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
+                        <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.task_id}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </div>
                 </div>
             `).join('');
         }
 
-        // 添加格式化时间间隔的函数
-        function formatInterval(seconds) {
-            const hours = parseInt(seconds) / 3600;
-            if (hours >= 24) {
-                return `每${hours/24}天`;
-            } else if (hours >= 1) {
-                return `每${hours}小时`;
-            } else {
-                return `每${hours*60}分钟`;
-            }
-        }
-
-        // 添加切换任务状态的函数
-        function toggleTask(taskId) {
-            let tasks = [];
-            try {
-                const tasksInput = document.getElementById('TASKS');
-                if (tasksInput && tasksInput.value) {
-                    tasks = JSON.parse(tasksInput.value);
-                }
-            } catch (e) {
-                return;
-            }
-            
-            const taskIndex = tasks.findIndex(t => t.task_id === taskId);
-            if (taskIndex >= 0) {
-                tasks[taskIndex].is_active = !tasks[taskIndex].is_active;
-                document.getElementById('TASKS').value = JSON.stringify(tasks);
-                updateTaskList();
-                showSaveNotification(`任务已${tasks[taskIndex].is_active ? '启动' : '暂停'}，请点击底部的"保存所有设置"按钮保存更改`);
-            }
-        }
-
-        // 添加更新发送对象下拉框的函数
-        function updateTaskChatIdOptions() {
-            const chatSelect = document.getElementById('taskChatId');
-            if (!chatSelect) return;
-            
-            // 保存当前选中的值
-            const currentValue = chatSelect.value;
-            
-            // 清空现有选项
-            chatSelect.innerHTML = '<option value="">请选择发送对象</option>';
-            
-            // 从监听列表获取用户
-            const userElements = document.querySelectorAll('#selected_users_LISTEN_LIST .list-group-item');
-            userElements.forEach(element => {
-                const userName = element.textContent.trim().replace('×', '').trim();
-                if (userName) {
-                    chatSelect.innerHTML += `<option value="${userName}">${userName}</option>`;
-                }
-            });
-            
-            // 恢复之前选中的值
-            if (currentValue) {
-                chatSelect.value = currentValue;
-            }
-        }
-
-        // 修改显示添加任务模态框时的处理
-        document.getElementById('addTaskModal').addEventListener('show.bs.modal', function () {
-            // 重置表单
-            document.getElementById('taskForm').reset();
-            
-            // 更新发送对象下拉框
-            updateTaskChatIdOptions();
-            
-            // 默认显示cron输入框
-            toggleScheduleInput();
-        });
-
-        // 在用户列表变化时更新发送对象下拉框
-        document.addEventListener('DOMContentLoaded', function() {
-            // 监听用户列表的变化
-            const userListElement = document.getElementById('selected_users_LISTEN_LIST');
-            if (userListElement) {
-                const observer = new MutationObserver(function(mutations) {
-                    updateTaskChatIdOptions();
-                });
-                
-                observer.observe(userListElement, {
-                    childList: true,
-                    subtree: true
-                });
-            }
-            
-            // 初始化时更新一次
-            updateTaskChatIdOptions();
-        });
-
-        // 添加删除任务的函数
         function deleteTask(taskId) {
             if (confirm('确定要删除这个任务吗？')) {
                 // 获取当前任务列表
@@ -1539,59 +1516,42 @@
             }
         }
 
-        // 添加页面关闭事件监听器
-        window.addEventListener('beforeunload', function(e) {
-            // 获取所有配置数据
-            const mainForm = document.getElementById('configForm');
-            const otherForm = document.getElementById('otherConfigForm');
-            const config = {};
+        // 添加切换调度类型输入框的函数
+        function toggleScheduleInput() {
+            const scheduleType = document.getElementById('scheduleType').value;
+            const cronInput = document.getElementById('cronExpression').parentElement;
+            const intervalInput = document.getElementById('intervalHours').parentElement;
             
-            // 获取所有表单数据
-            const formData = new FormData(mainForm);
-            
-            // 处理表单数据
-            for (let [key, value] of formData.entries()) {
-                processFormValue(config, key, value);
+            if (scheduleType === 'cron') {
+                cronInput.style.display = 'block';
+                intervalInput.style.display = 'none';
+            } else {
+                cronInput.style.display = 'none';
+                intervalInput.style.display = 'block';
             }
-            
-            if (otherForm) {
-                const otherFormData = new FormData(otherForm);
-                for (let [key, value] of otherFormData.entries()) {
-                    processFormValue(config, key, value);
-                }
-            }
+        }
 
-            // 特别处理任务数据
-            const tasksInput = document.getElementById('TASKS');
-            if (tasksInput) {
-                try {
-                    const tasksValue = tasksInput.value;
-                    if (tasksValue) {
-                        config['TASKS'] = JSON.parse(tasksValue);
-                    }
-                } catch (e) {
-                    config['TASKS'] = [];
-                }
-            }
-
-            // 特别检查温度值
-            const temperatureSlider = document.getElementById('TEMPERATURE_slider');
-            const temperatureInput = document.getElementById('TEMPERATURE');
-            if (temperatureSlider && temperatureInput) {
-                const tempValue = parseFloat(temperatureSlider.value);
-                if (!isNaN(tempValue)) {
-                    config['TEMPERATURE'] = tempValue;
-                }
-            }
-
-            // 使用 navigator.sendBeacon 发送保存请求
-            // 这种方式可以在页面关闭时可靠地发送数据
-            const data = new FormData();
-            data.append('config', JSON.stringify(config));
+        // 添加删除历史配置的函数
+        function deleteHistoryConfig(index) {
+            // 获取现有的历史配置
+            let historyConfigs = getCookieConfigs();
             
-            // 发送保存请求
-            navigator.sendBeacon('/save', data);
-        });
+            if (index >= 0 && index < historyConfigs.length) {
+                // 删除指定索引的配置
+                historyConfigs.splice(index, 1);
+                
+                // 更新cookie
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + 30);
+                document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+                
+                // 更新显示
+                updateHistoryConfigList();
+                
+                // 显示提示
+                showSaveNotification('历史配置已删除');
+            }
+        }
     </script>
 </body>
 </html>
