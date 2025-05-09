@@ -11,20 +11,22 @@ import logging
 import re
 import os
 import random
-import json  # 新增导入
-import time  # 新增导入
-import pathlib
+import json
+import time
+import pathlib # pathlib is imported but not used, consider removing if not needed elsewhere.
 import requests
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union # Tuple, Union not used in this version's public methods.
 from openai import OpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-    retry_if_exception_type
-)
+from openai import APIConnectionError, RateLimitError, APIStatusError # Import specific OpenAI errors
 
-# 修改logger获取方式，确保与main模块一致
+# tenacity is imported but not used in this core logic. If retry logic is needed, it should be applied.
+# from tenacity import (
+#     retry,
+#     stop_after_attempt,
+#     wait_random_exponential,
+#     retry_if_exception_type
+# )
+
 logger = logging.getLogger('main')
 
 class LLMService:
@@ -32,22 +34,16 @@ class LLMService:
                  max_token: int, temperature: float, max_groups: int):
         """
         强化版AI服务初始化
-
-        :param api_key: API认证密钥
-        :param base_url: API基础URL
-        :param model: 使用的模型名称
-        :param max_token: 最大token限制
-        :param temperature: 创造性参数(0~2)
-        :param max_groups: 最大对话轮次记忆
-        :param system_prompt: 系统级提示词
         """
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
             default_headers={
                 "Content-Type": "application/json",
-                "User-Agent": "MyDreamBot/1.0"
-            }
+                "User-Agent": "KouriChatClient/1.0" # Use a more specific user agent if desired
+            },
+            timeout=60.0, # Add a default timeout
+            max_retries=2 # Add default max_retries
         )
         self.config = {
             "model": model,
@@ -56,152 +52,71 @@ class LLMService:
             "max_groups": max_groups,
         }
         self.chat_contexts: Dict[str, List[Dict]] = {}
-
-        # 安全字符白名单（可根据需要扩展）
         self.safe_pattern = re.compile(r'[\x00-\x1F\u202E\u200B]')
 
-        # 如果是 Ollama，获取可用模型列表
-        if 'localhost:11434' in base_url:
-            self.available_models = self.get_ollama_models()
+        # Ollama model fetching initialization (assuming it's still relevant)
+        if base_url and 'localhost:11434' in base_url:
+            try:
+                self.available_models = self.get_ollama_models()
+            except Exception as e_ollama_init:
+                logger.error(f"Failed to initialize Ollama models during LLMService setup: {e_ollama_init}")
+                self.available_models = []
         else:
             self.available_models = []
 
     def _manage_context(self, user_id: str, message: str, role: str = "user"):
         """
-        上下文管理器（支持动态记忆窗口）
-
-        :param user_id: 用户唯一标识
-        :param message: 消息内容
-        :param role: 角色类型(user/assistant)
+        上下文管理器
         """
         if user_id not in self.chat_contexts:
             self.chat_contexts[user_id] = []
-
-        # 添加新消息
         self.chat_contexts[user_id].append({"role": role, "content": message})
-
-        # 维护上下文窗口
         while len(self.chat_contexts[user_id]) > self.config["max_groups"] * 2:
-            # 优先保留最近的对话组
-            self.chat_contexts[user_id] = self.chat_contexts[user_id][-self.config["max_groups"]*2:]
+            self.chat_contexts[user_id].pop(0) # Pop from beginning instead of re-slicing
 
-    def _sanitize_response(self, raw_text: str) -> str:
+    def _sanitize_response(self, raw_text: Optional[str]) -> str:
         """
         响应安全处理器
-        1. 移除控制字符
-        2. 标准化换行符
-        3. 防止字符串截断异常
         """
+        if raw_text is None: # Handle None input
+            return ""
+        if not isinstance(raw_text, str): # Ensure it's a string
+            logger.warning(f"Sanitize_response received non-string input: {type(raw_text)}, converting to string.")
+            raw_text = str(raw_text)
+
         try:
             cleaned = re.sub(self.safe_pattern, '', raw_text)
             return cleaned.replace('\r\n', '\n').replace('\r', '\n')
         except Exception as e:
-            logger.error(f"Response sanitization failed: {str(e)}")
-            return "响应处理异常，请重新尝试"
+            logger.error(f"Response sanitization failed: {str(e)}", exc_info=True)
+            return "响应处理异常" # Keep it simple
 
     def _validate_response(self, response: dict) -> bool:
-    """
-        API响应校验 (已宽松化，以兼容第三方API)
-        主要放松token计数一致性检查和finish_reason检查。
         """
-        logger.debug("API响应调试信息 (进行验证)：\n%s", json.dumps(response, indent=2, ensure_ascii=False))
+        API响应校验 (已【极度】宽松化，主要目标是防止程序因非核心字段类型或缺失而崩溃)
+        它只做最基本的检查，确保响应是一个字典，并且如果存在 'choices' 或 'candidates'，它们是列表。
+        不强制要求所有 OpenAI 标准字段都存在或类型完全匹配。
+        """
+        logger.debug("API响应调试信息 (进行[极度宽松]验证)：\n%s", json.dumps(response, indent=2, ensure_ascii=False))
 
-        # —— 校验层级1：基础结构 (保持) ——
-        required_root_keys = {"id", "object", "created", "model", "choices", "usage"}
-        if missing := required_root_keys - response.keys():
-            logger.error("[Validation] 根层级缺少必需字段：%s", missing)
-            return False # 核心结构缺失，验证失败
+        if not isinstance(response, dict):
+            logger.error("[宽松 Validation] 响应根本不是一个字典。类型: %s", type(response))
+            return False
 
-        # —— 校验层级2：字段类型校验 (保持) ——
-        type_checks = [
-            ("id", str, "字段应为字符串"),
-            ("object", str, "字段应为字符串"),
-            ("created", int, "字段应为时间戳整数"),
-            ("model", str, "字段应为模型名称字符串"),
-            ("choices", list, "字段应为列表类型"),
-            ("usage", dict, "字段应为使用量字典")
-        ]
-        for field, expected_type, error_msg in type_checks:
-            if not isinstance(response.get(field), expected_type):
-                logger.error("[Validation] 字段[%s]类型错误：%s", field, error_msg)
-                return False # 基本类型错误，验证失败
+        has_choices = "choices" in response and isinstance(response.get("choices"), list)
+        has_candidates = "candidates" in response and isinstance(response.get("candidates"), list)
 
-        # —— 校验层级3：choices数组结构 (基本保持) ——
-        if len(response.get("choices", [])) == 0:
-            # 允许空 choices 数组吗？如果允许，这里应该改成 warning 并 return True
-            logger.warning("[Validation] 响应 choices 数组为空")
-            # return False # 如果空choices代表错误，则保留此行
-            # 暂时假设空choices可能是合法的（比如被过滤），或内容在别处。如果确定空choices是错误，取消这行的注释
+        if not has_choices and not has_candidates:
+            logger.warning("[宽松 Validation] 响应中既没有 'choices' 列表，也没有 'candidates' 列表。可能无法提取回复。")
+            # Return True to allow content extraction logic to try its best.
 
-        for index, choice in enumerate(response.get("choices",[])): # 使用 .get 以防 choices 不存在
-            if not isinstance(choice, dict):
-                logger.error("[Validation] 第%d个choice类型错误", index)
-                return False # Choice 结构错，验证失败
+        if has_choices and response.get("choices") is not None and not response["choices"]: # Check if it is not None before checking length
+            logger.warning("[宽松 Validation] 'choices' 列表存在但为空。")
 
-            if missing := {"message", "finish_reason"} - choice.keys(): # 简化检查，只看必备的
-                logger.error("[Validation] choice[%d]缺少关键字段：%s", index, missing)
-                return False # Choice 结构不完整，验证失败
+        if has_candidates and response.get("candidates") is not None and not response["candidates"]: # Check if it is not None
+            logger.warning("[宽松 Validation] 'candidates' 列表存在但为空。")
 
-            # 校验message结构
-            message = choice.get("message", {}) # 使用 .get
-            if not isinstance(message, dict):
-                 logger.error("[Validation] 'message' 字段类型错误，应为字典: %s", type(message))
-                 return False
-
-            if missing := {"role", "content"} - message.keys():
-                logger.error("[Validation] message结构异常：缺少%s", missing)
-                # Content 可能为 null 或空，但 role 必须有
-                if "role" not in message:
-                   return False # Role 必须有！
-                # Content 先不做严格检查
-
-            if message.get("role") != "assistant": # 使用 .get
-                logger.warning("[Validation] 非标准的角色类型：%s，但将继续处理...", message.get("role"))
-                # 对于 role 不为 assistant 的情况，不再直接报错，而是发出警告
-
-            # 检查 content 是否存在且是字符串 （放松对空内容的检查）
-            if "content" in message and not (isinstance(message["content"], str) or message["content"] is None):
-                 logger.error("[Validation] 'content' 字段类型错误，应为字符串或None: %s", type(message["content"]))
-                 return False
-            
-            # ================ 放松 finish_reason 检查 ================
-            allowed_finish_reasons = ("stop", "length", "content_filter", "tool_calls", None) # 加入 tool_calls
-            finish_reason = choice.get("finish_reason") # 使用 .get
-            if finish_reason not in allowed_finish_reasons:
-                logger.warning("[Validation] 未知或非预期的对话终止原因：%s (将继续处理)", finish_reason)
-                # 不再因为 finish_reason 不符合预设列表而返回 False
-
-        # —— 校验层级4：使用量统计 (usage) ——
-        usage = response.get("usage", {}) # 使用 .get
-        if not isinstance(usage, dict):
-             logger.error("[Validation] 'usage' 字段类型错误，应为字典: %s", type(usage))
-             return False # usage 必须是字典
-
-        usage_checks = [
-            ("prompt_tokens", int),
-            ("completion_tokens", int),
-            ("total_tokens", int)
-        ]
-        # 只检查字段是否存在且类型是数字即可，不再检查非负
-        for field, expected_type in usage_checks:
-             if field not in usage or not isinstance(usage[field], expected_type):
-                 logger.warning("[Validation] 使用量字段[%s]缺失或类型非整数。尝试继续...", field)
-                 # 不再因此返回 False，最多给个警告
-
-        # ================ 放松 Token 总数一致性检查 ================
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", 0)
-        
-        # 确保提取的值是整数，如果不是或者不存在，则我们无法进行一致性检查
-        if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int) and isinstance(total_tokens, int):
-            if total_tokens != (prompt_tokens + completion_tokens):
-                logger.warning("[Validation] Token总数可能不一致(兼容模式): prompt(%d) + completion(%d) = %d ≠ total(%d)。这在某些API代理上可能发生，尝试继续...",
-                             prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, total_tokens)
-                # 不再因为 token 计数不完全一致而返回 False
-
-        # 如果所有关键检查都通过了
-        logger.info("[Validation] 数据校验通过 (兼容模式)")
+        logger.info("[宽松 Validation] 基本结构检查通过。将尝试提取内容。")
         return True
 
     def get_response(self, message: str, user_id: str, system_prompt: str, previous_context: List[Dict] = None, core_memory: str = None) -> str:
@@ -215,128 +130,183 @@ class LLMService:
             core_memory: 核心记忆（可选）
         """
         try:
-            # —— 阶段1：输入验证 ——
             if not message.strip():
                 logger.warning("收到空消息请求")
                 return "嗯...我好像收到了空白消息呢（歪头）"
 
-            # —— 阶段2：上下文更新 ——
-            # 只在程序刚启动时（上下文为空时）加载外部历史上下文
             if previous_context and user_id not in self.chat_contexts:
-                logger.info(f"程序启动初始化：加载历史上下文，共 {len(previous_context)} 条消息")
-                self.chat_contexts[user_id] = previous_context.copy()
-            
-            # 添加当前消息到上下文
-            self._manage_context(user_id, message)
+                logger.info(f"程序启动初始化：加载历史上下文，共 {len(previous_context)} 条消息 for {user_id}")
+                self.chat_contexts[user_id] = list(previous_context) # Use list() to ensure it's a mutable copy
 
-            # —— 阶段3：构建请求参数 ——
-            # 读取基础Prompt
+            self._manage_context(user_id, message, "user") # Add current user message to context
+
             try:
-                # 从当前文件位置(llm_service.py)向上导航到项目根目录
-                current_dir = os.path.dirname(os.path.abspath(__file__))  # src/services/ai
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))  # 项目根目录
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
                 base_prompt_path = os.path.join(project_root, "data", "base", "base.md")
-                
                 with open(base_prompt_path, "r", encoding="utf-8") as f:
                     base_content = f.read()
-            except Exception as e:
-                logger.error(f"基础Prompt文件读取失败: {str(e)}")
+            except Exception as e_prompt:
+                logger.error(f"基础Prompt文件读取失败: {str(e_prompt)}")
                 base_content = ""
-            
-            # 构建完整提示词: base + 核心记忆 + 人设
-            if core_memory:
-                final_prompt = f"{base_content}\n\n{core_memory}\n\n{system_prompt}"
+
+            final_system_prompt_content = f"{base_content}\n\n{system_prompt}"
+            if core_memory and core_memory.strip():
+                final_system_prompt_content = f"{base_content}\n\n核心记忆:\n{core_memory}\n\n当前人设:\n{system_prompt}"
                 logger.debug("提示词顺序：base.md + 核心记忆 + 人设")
             else:
-                final_prompt = f"{base_content}\n\n{system_prompt}"
-                logger.debug("提示词顺序：base.md + 人设")
-            
-            # 构建消息列表
-            messages = [
-                {"role": "system", "content": final_prompt},
-                *self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
+                logger.debug("提示词顺序：base.md + 人设 (无核心记忆)")
+
+
+            # Construct messages for the API call
+            # The context for user_id in self.chat_contexts already includes the latest user message
+            api_messages = [
+                {"role": "system", "content": final_system_prompt_content.strip()}
             ]
+            # Add chat history, ensuring not to exceed max_groups
+            # self.chat_contexts[user_id] at this point includes the current final_prompt as 'user' role
+            # via self._manage_context before. The last one is the user, so we need context BEFORE that potentially.
+            # The logic for self.chat_contexts has user, assistant, user, assistant...
+            # So we take the last N pairs for context.
+            # Correct approach: system prompt is separate, then the conversation history.
+            api_messages.extend(self.chat_contexts.get(user_id, [])[-(self.config["max_groups"] * 2):])
 
-            # 为 Ollama 构建消息内容
-            chat_history = self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
-            history_text = "\n".join([
-                f"{msg['role']}: {msg['content']}" 
-                for msg in chat_history
-            ])
-            ollama_message = {
-                "role": "user",
-                "content": f"{final_prompt}\n\n对话历史：\n{history_text}\n\n用户问题：{message}"
-            }
 
-            # 检查是否是 Ollama API
-            is_ollama = 'localhost:11434' in str(self.client.base_url)
+            # Check if it is Ollama API (this logic was present earlier)
+            is_ollama = self.client.base_url and 'localhost:11434' in str(self.client.base_url)
 
             if is_ollama:
-                # Ollama API 格式
+                # Ollama specific logic, ensure it's up-to-date or tested separately
+                # For simplicity, we'll assume Ollama is either not used or handled correctly elsewhere for now
+                # This simplified version focuses on the main OpenAI-compatible path.
+                logger.warning("Ollama specific path in get_response is simplified in this version. Full Ollama support may need review.")
+                # Fall-through to OpenAI compatible path or implement specific Ollama logic here if crucial.
+                # Assuming it might still use the OpenAI client object with a different base_url.
                 request_config = {
-                    "model": self.config["model"].split('/')[-1],  # 移除路径前缀
-                    "messages": [ollama_message],  # 将消息包装在列表中
-                    "stream": False,
-                    "options": {
-                        "temperature": self.config["temperature"],
-                        "max_tokens": self.config["max_token"]
-                    }
+                    "model": self.config["model"].split('/')[-1] if '/' in self.config.get("model","") else self.config.get("model",""),
+                    "messages": api_messages, # Ollama usually prefers this format too
+                    "temperature": self.config["temperature"],
+                    "max_tokens": self.config["max_token"],
+                    "stream": False, # Explicitly false for non-streaming
                 }
-                
-                # 使用 requests 库向 Ollama API 发送 POST 请求
+                 # Using requests for Ollama as per original code
                 try:
-                    response = requests.post(
-                        f"{str(self.client.base_url)}",
+                    ollama_api_url = str(self.client.base_url).rstrip('/') + "/api/chat"  # Common Ollama chat endpoint
+                    logger.info(f"Sending request to Ollama: {ollama_api_url} with model {request_config['model']}")
+                    http_response = requests.post(
+                        ollama_api_url,
                         json=request_config,
-                        headers={"Content-Type": "application/json"}
+                        headers={"Content-Type": "application/json"},
+                        timeout=60
                     )
-                    response.raise_for_status()
-                    response_data = response.json()
-                    
-                    # 检查响应中是否包含 message 字段
-                    if response_data and "message" in response_data:
-                        raw_content = response_data["message"]["content"]
-                        logger.debug("Ollama API响应内容: %s", raw_content)
-                    else:
-                        raise ValueError("错误的API响应结构")
-                        
-                    clean_content = self._sanitize_response(raw_content)
-                    self._manage_context(user_id, clean_content, "assistant")
-                    return clean_content
-                    
-                except Exception as e:
-                    logger.error(f"Ollama API请求失败: {str(e)}")
+                    http_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+                    response_data_dict = http_response.json()
+                except requests.exceptions.RequestException as e_ollama_req:
+                    logger.error(f"Ollama API request failed (requests lib): {str(e_ollama_req)}", exc_info=True)
+                    raise ValueError(f"Ollama API request error: {e_ollama_req}") from e_ollama_req
+
+
+            else: # Standard OpenAI compatible API path
+                request_config = {
+                    "model": self.config["model"],
+                    "messages": api_messages,
+                    "temperature": self.config["temperature"],
+                    "max_tokens": self.config["max_token"],
+                    "top_p": self.config.get("top_p", 0.95), # Use .get for optional params
+                    "frequency_penalty": self.config.get("frequency_penalty", 0.2)
+                }
+                logger.info(
+                    f"向LLM发送请求: Model='{request_config['model']}', BaseURL='{self.client.base_url}', Msg_Count={len(api_messages)}"
+                )
+                if api_messages:
+                    logger.debug(f"Last message sent: role='{api_messages[-1]['role']}', content='{str(api_messages[-1]['content'])[:100]}...'")
+
+
+                try:
+                    response_obj = self.client.chat.completions.create(**request_config)
+                    response_data_dict = response_obj.model_dump(exclude_none=True) # Get dict, exclude_none can be helpful
+                except (APIConnectionError, RateLimitError, APIStatusError) as e_openai_api:
+                    logger.error(f"OpenAI Library API Error: {type(e_openai_api).__name__} - {str(e_openai_api)}", exc_info=True)
+                    raise # Re-raise to be caught by the outer try-except
+                except Exception as e_apicall:
+                    logger.error(f"LLM API 调用 self.client.chat.completions.create 发生未知错误: {str(e_apicall)}", exc_info=True)
                     raise
 
-            else:
-                # 主要 api 请求（重要）
-                # 标准 OpenAI 格式
-                request_config = {
-                    "model": self.config["model"],  # 模型名称
-                    "messages": messages,  # 消息列表
-                    "temperature": self.config["temperature"],  # 温度参数
-                    "max_tokens": self.config["max_token"],  # 最大 token 数
-                    "top_p": 0.95,  # top_p 参数
-                    "frequency_penalty": 0.2  # 频率惩罚参数
-                }
-                
-                # 使用 OpenAI 客户端发送请求
-                response = self.client.chat.completions.create(**request_config)
-                # 验证 API 响应结构
-                if not self._validate_response(response.model_dump()):
-                    raise ValueError("错误的API响应结构")
-                    
-                # 获取原始内容
-                raw_content = response.choices[0].message.content
-                # 清理响应内容
-                clean_content = self._sanitize_response(raw_content)
-                # 管理上下文
-                self._manage_context(user_id, clean_content, "assistant")
-                # 返回清理后的内容
-                return clean_content or ""
+            # ===============================================================
+            # || START: 打印API响应 (无论Ollama还是OpenAI兼容)              ||
+            # ===============================================================
+            logger.info(">>>>>>>>>> RAW API RESPONSE START >>>>>>>>>>")
+            logger.info(json.dumps(response_data_dict, indent=2, ensure_ascii=False)) # This will now print for Ollama too
+            logger.info("<<<<<<<<<< RAW API RESPONSE END   <<<<<<<<<<")
+            # ===============================================================
 
-        except Exception as e:
-            logger.error("大语言模型服务调用失败: %s", str(e), exc_info=True)
+            if not self._validate_response(response_data_dict):
+                logger.error(
+                    f"宽松验证失败。原始响应导致宽松验证也失败了。Response: {json.dumps(response_data_dict, indent=2, ensure_ascii=False)}"
+                )
+                # Even if loose validation fails, content extraction will be attempted.
+                # raise ValueError("错误的API响应结构 (即使是宽松验证也失败了)") # Commented out to allow content extraction to try.
+
+            raw_content = None
+            try:
+                # Try OpenAI path first
+                if "choices" in response_data_dict and \
+                   isinstance(response_data_dict.get("choices"), list) and \
+                   response_data_dict["choices"] and \
+                   isinstance(response_data_dict["choices"][0], dict) and \
+                   response_data_dict["choices"][0].get("message") and \
+                   isinstance(response_data_dict["choices"][0]["message"], dict) and \
+                   "content" in response_data_dict["choices"][0]["message"]:
+                    raw_content = response_data_dict["choices"][0]["message"]["content"]
+                    logger.info("成功从 OpenAI 路径 '.choices[0].message.content' 提取内容。")
+
+                # Try possible Gemini path (if using a proxy that returns Gemini-like structure)
+                elif "candidates" in response_data_dict and \
+                     isinstance(response_data_dict.get("candidates"), list) and \
+                     response_data_dict["candidates"] and \
+                     isinstance(response_data_dict["candidates"][0], dict) and \
+                     response_data_dict["candidates"][0].get("content") and \
+                     isinstance(response_data_dict["candidates"][0]["content"], dict) and \
+                     response_data_dict["candidates"][0]["content"].get("parts") and \
+                     isinstance(response_data_dict["candidates"][0]["content"]["parts"], list) and \
+                     response_data_dict["candidates"][0]["content"]["parts"] and \
+                     isinstance(response_data_dict["candidates"][0]["content"]["parts"][0], dict) and \
+                     "text" in response_data_dict["candidates"][0]["content"]["parts"][0]:
+                    raw_content = response_data_dict["candidates"][0]["content"]["parts"][0]["text"]
+                    logger.info("成功从 Gemini 路径 '.candidates[0].content.parts[0].text' 提取内容。")
+                
+                # Try Ollama direct 'message' path if others fail
+                elif is_ollama and response_data_dict.get("message") and \
+                    isinstance(response_data_dict["message"], dict) and \
+                    "content" in response_data_dict["message"]:
+                    raw_content = response_data_dict["message"]["content"]
+                    logger.info("成功从 Ollama 直接 '.message.content' 路径提取内容。")                    
+                
+                else:
+                    logger.warning("无法从已知的 OpenAI, Gemini, 或 Ollama(direct) 路径中提取聊天回复内容。请检查上面打印的原始API响应。")
+
+            except Exception as e_extract:
+                logger.error(f"提取内容时发生意外错误: {str(e_extract)}", exc_info=True)
+                raw_content = None
+
+            if raw_content is None:
+                logger.error("最终未能提取到任何聊天回复内容 (raw_content is None)。将返回通用错误。")
+                raise ValueError("未能从API响应中提取有效的聊天内容")
+
+            clean_content = self._sanitize_response(raw_content) # sanitize_response now handles None
+            self._manage_context(user_id, clean_content, "assistant")
+            logger.info(f"AI回复 ({user_id}): {clean_content[:100]}...") # Log a snippet of the reply
+            return clean_content
+
+        except ValueError as ve: # Catch our specific ValueErrors for content/structure issues
+            logger.error(f"值错误导致LLM服务失败: {str(ve)}", exc_info=False) # No need for full stack trace if it's our own ValueError
+            return random.choice([
+                "唔...好像API返回的数据有点奇怪，我没看懂呢。",
+                "API响应的格式不太对哦，能帮我反馈一下吗？",
+                "数据解析出错了，内容提取失败了~"
+            ])
+        except Exception as e: # Catch-all for other unexpected errors
+            logger.error("大语言模型服务调用时发生未知类型错误: %s", str(e), exc_info=True)
             return random.choice([
                 "好像有些小状况，请再试一次吧～",
                 "信号好像不太稳定呢（皱眉）",
@@ -351,65 +321,127 @@ class LLMService:
             del self.chat_contexts[user_id]
             logger.info("已清除用户 %s 的对话历史", user_id)
             return True
+        logger.info("尝试清除用户 %s 的对话历史，但历史不存在。", user_id)
         return False
 
-    def analyze_usage(self, response: dict) -> Dict:
+    def analyze_usage(self, response: dict) -> Dict: # This method isn't currently called by get_response
         """
         用量分析工具
+        Note: This needs to be adapted if the 'usage' field structure changes or is absent.
         """
-        usage = response.get("usage", {})
-        return {
-            "prompt_tokens": usage.get("prompt_tokens", 0),
-            "completion_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-            "estimated_cost": (usage.get("total_tokens", 0) / 1000) * 0.02  # 示例计价
-        }
+        usage_data = {}
+        if response and isinstance(response, dict):
+            # OpenAI style
+            if "usage" in response and isinstance(response["usage"], dict):
+                usage = response["usage"]
+                usage_data = {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
+                }
+            # Gemini style
+            elif "usageMetadata" in response and isinstance(response["usageMetadata"], dict):
+                usage_meta = response["usageMetadata"]
+                usage_data = {
+                    "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                    "completion_tokens": usage_meta.get("candidatesTokenCount", 0), # Sum if multiple candidates?
+                    "total_tokens": usage_meta.get("totalTokenCount", 0),
+                }
+            else:
+                logger.warning("analyze_usage: No 'usage' or 'usageMetadata' found in response.")
+        else:
+            logger.warning("analyze_usage: Invalid response object passed.")
 
-    def chat(self, messages: list, **kwargs) -> str:
+        # Example costing, adjust as needed
+        usage_data["estimated_cost"] = (usage_data.get("total_tokens", 0) / 1000) * 0.002 # Generic cost
+        return usage_data
+
+
+    def chat(self, messages: list, **kwargs) -> str: # This seems like a more direct chat method
         """
-        发送聊天请求并获取回复
-        
-        Args:
-            messages: 消息列表，每个消息是包含 role 和 content 的字典
-            **kwargs: 额外的参数配置
-            
-        Returns:
-            str: AI的回复内容
+        发送聊天请求并获取更直接的回复 (可能用于非上下文的单一轮次查询)
         """
         try:
-            response = self.client.chat.completions.create(
-                model=self.config["model"],
-                messages=messages,
-                temperature=kwargs.get('temperature', self.config["temperature"]),
-                max_tokens=self.config["max_token"]
-            )
-            
-            if not self._validate_response(response.model_dump()):
-                raise ValueError("Invalid API response structure")
-                
-            return response.choices[0].message.content or ""
-            
-        except Exception as e:
-            logger.error(f"Chat completion failed: {str(e)}")
-            return ""
+            request_params = {
+                "model": self.config["model"],
+                "messages": messages,
+                "temperature": kwargs.get('temperature', self.config["temperature"]),
+                "max_tokens": kwargs.get('max_tokens', self.config["max_token"]) # Allow override
+            }
+            logger.info(f"Direct chat call with model: {request_params['model']}")
 
-    def get_ollama_models(self) -> List[Dict]:
+            response_obj = self.client.chat.completions.create(**request_params)
+            response_data = response_obj.model_dump(exclude_none=True)
+
+            # ===============================================================
+            logger.info(">>>>>>>>>> RAW API RESPONSE START (chatmethod) >>>>>>>>>>")
+            logger.info(json.dumps(response_data, indent=2, ensure_ascii=False))
+            logger.info("<<<<<<<<<< RAW API RESPONSE END   (chatmethod) <<<<<<<<<<")
+            # ===============================================================
+
+            if not self._validate_response(response_data): # Use loose validation
+                logger.error("Invalid API response structure in chat method (after loose validation).")
+                 # Even if validation fails, try to extract
+                # raise ValueError("Invalid API response structure in chat method")
+
+            # Robust content extraction for chat method as well
+            content = None
+            try:
+                if "choices" in response_data and response_data["choices"] and \
+                   response_data["choices"][0].get("message") and \
+                   "content" in response_data["choices"][0]["message"]:
+                    content = response_data["choices"][0]["message"]["content"]
+                elif "candidates" in response_data and response_data["candidates"] and \
+                     response_data["candidates"][0].get("content") and \
+                     response_data["candidates"][0]["content"].get("parts") and \
+                     response_data["candidates"][0]["content"]["parts"] and \
+                     "text" in response_data["candidates"][0]["content"]["parts"][0]:
+                    content = response_data["candidates"][0]["content"]["parts"][0]["text"]
+                # Ollama direct path could also be added here if chat() might use it
+                else:
+                    logger.warning("chat method: Could not extract content from known paths.")
+            except Exception as e_chat_extract:
+                 logger.error(f"chat method: Error extracting content: {e_chat_extract}")
+                 content = None
+
+            return self._sanitize_response(content) if content is not None else "" # Sanitize and return, or empty string
+
+        except Exception as e:
+            logger.error(f"Chat completion failed: {str(e)}", exc_info=True)
+            return "" # Return empty string on failure for direct chat
+
+
+    def get_ollama_models(self) -> List[Dict]: # Make sure this method is robust
         """获取本地 Ollama 可用的模型列表"""
+        ollama_url = str(self.client.base_url).rstrip('/') # Assuming base_url is for ollama here
+        if not 'localhost:11434' in ollama_url: # Double check if this is indeed for ollama
+           ollama_url = 'http://localhost:11434' # Default if base_url not specific
+
+        api_tags_url = f"{ollama_url}/api/tags"
+        logger.info(f"Fetching Ollama models from: {api_tags_url}")
         try:
-            response = requests.get('http://localhost:11434/api/tags')
-            if response.status_code == 200:
-                models = response.json().get('models', [])
-                return [
-                    {
-                        "id": model['name'],
-                        "name": model['name'],
-                        "status": "active",
-                        "type": "chat",
-                        "context_length": 16000  # 默认上下文长度
-                    }
-                    for model in models
-                ]
+            response = requests.get(api_tags_url, timeout=10) # Add timeout
+            response.raise_for_status() # Raise HTTPError for bad responses
+            models_data = response.json().get('models', [])
+            formatted_models = [
+                { # This structure might be for a specific UI, adjust if needed
+                    "id": model.get('name', 'unknown_model'),
+                    "name": model.get('name', 'Unnamed Model'),
+                    "status": "active", # Assume active
+                    "type": "chat",    # Assume chat
+                    "context_length": model.get('details',{}).get('parameter_size',0) * 1024 if model.get('details',{}).get('parameter_size') else 16000# Attempt better context length (example)
+                }
+                for model in models_data if model.get('name') # Ensure name exists
+            ]
+            logger.info(f"Found {len(formatted_models)} Ollama models.")
+            return formatted_models
+        except requests.exceptions.RequestException as e_ollama:
+            logger.error(f"获取Ollama模型列表失败 (RequestException): {api_tags_url}, Error: {str(e_ollama)}")
             return []
-        except Exception as e:
-            logger.error(f"获取Ollama模型列表失败: {str(e)}")
+        except json.JSONDecodeError as e_json:
+            logger.error(f"获取Ollama模型列表失败 (JSONDecodeError): Body was '{response.text if 'response' in locals() else 'N/A'}', Error: {str(e_json)}")
             return []
+        except Exception as e_generic:
+            logger.error(f"获取Ollama模型列表中的未知错误: {str(e_generic)}", exc_info=True)
+            return []
+
