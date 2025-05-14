@@ -145,7 +145,7 @@ class MemoryService:
             summary = None
             while retries < max_retries:
                 try:
-                    system_prompt_summarize = "请将以下对话记录总结为最重要的几条长期记忆，总结内容要求：1. 严格控制字数在50-100字内2. 仅保留对未来对话至关重要的信息3. 按优先级提取：用户个人信息 > 用户偏好/喜好 > 重要约定 > 特殊事件 > 常去地点4. 使用第一人称视角撰写，仿佛是你自己在记录对话记忆5. 使用极简句式，省略不必要的修饰词,禁止使用颜文字和括号描述动作6. 不保留日期、时间等临时性信息，除非是周期性的重要约定7. 信息应当是从你的角度了解到的用户信息8. 格式为简洁的要点，可用分号分隔不同信息9. 如果约定的时间已经过去，或者用户改变了约定，则更改相关的约定记忆"
+                    system_prompt_summarize = "请将以下对话记录总结为最重要的几条长期记忆，总结内容应包含地点，事件，人物（如果对话记录中有的话）用中文简要表述："
                     llm = self._get_llm_client()
                     summary = llm.get_response(
                         message=dialog_to_summarize,
