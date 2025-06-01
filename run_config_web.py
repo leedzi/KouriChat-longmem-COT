@@ -94,9 +94,19 @@ config_path = os.path.join(ROOT_DIR, 'src/config/config.json')  # 将配置路�
 # 禁用Python的字节码缓存
 sys.dont_write_bytecode = True
 
+# 定义模板和静态文件目录
+templates_dir = os.path.join(ROOT_DIR, 'src/webui/templates')
+static_dir = os.path.join(ROOT_DIR, 'src/webui/static')
+
+# 确保目录存在
+os.makedirs(templates_dir, exist_ok=True)
+os.makedirs(static_dir, exist_ok=True)
+os.makedirs(os.path.join(static_dir, 'js'), exist_ok=True)
+os.makedirs(os.path.join(static_dir, 'css'), exist_ok=True)
+
 app = Flask(__name__,
-    template_folder=os.path.join(ROOT_DIR, 'src/webui/templates'),
-    static_folder=os.path.join(ROOT_DIR, 'src/webui/static'))
+    template_folder=templates_dir,
+    static_folder=static_dir)
 
 # 添加配置
 app.config['UPLOAD_FOLDER'] = os.path.join(ROOT_DIR, 'src/webui/background_image')
@@ -108,8 +118,12 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 app.secret_key = secrets.token_hex(16)
 
 # 在 app 初始化后添加
-app.register_blueprint(avatar_manager)
-app.register_blueprint(avatar_bp)
+try:
+    app.register_blueprint(avatar_manager)
+    app.register_blueprint(avatar_bp)
+    logger.debug("成功注册蓝图组件")
+except Exception as e:
+    logger.error(f"注册蓝图组件失败: {str(e)}")
 
 # 导入更新器中的常量
 from src.autoupdate.updater import Updater
@@ -193,7 +207,8 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             "图像识别API配置": {},
             "主动消息配置": {},
             "消息配置": {},
-            "Prompt配置": {},
+            "人设配置": {},
+            "网络搜索配置": {},
         }
 
         # 基础配置
@@ -201,7 +216,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             {
                 "LISTEN_LIST": {
                     "value": config.user.listen_list,
-                    "description": "用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)",
+                    "description": "用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！昵称尽量别用特殊字符)",
                 },
                 "DEEPSEEK_BASE_URL": {
                     "value": config.llm.base_url,
@@ -223,20 +238,6 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                     "description": "温度参数",
                     "min": 0.0,
                     "max": 1.7,
-                },
-                "TOP_P": {
-                    "value": float(config.llm.top_p),
-                    "type": "number",
-                    "description": "Top-p采样参数",
-                    "min": 0.1,
-                    "max": 1.0,
-                },
-                "FREQUENCY_PENALTY": {
-                    "value": float(config.llm.frequency_penalty),
-                    "type": "number",
-                    "description": "频率惩罚参数",
-                    "min": 0.0,
-                    "max": 2.0,
                 },
             }
         )
@@ -308,9 +309,9 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             }
         )
 
-        # Prompt配置
+        # 人设配置
         available_avatars = get_available_avatars()
-        config_groups["Prompt配置"].update(
+        config_groups["人设配置"].update(
             {
                 "MAX_GROUPS": {
                     "value": config.behavior.context.max_groups,
@@ -321,6 +322,33 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                     "description": "人设目录（自动包含 avatar.md 和 emojis 目录）",
                     "options": available_avatars,
                     "type": "select"
+                }
+            }
+        )
+
+        # 网络搜索配置
+        config_groups["网络搜索配置"].update(
+            {
+                "NETWORK_SEARCH_ENABLED": {
+                    "value": config.network_search.search_enabled,
+                    "type": "boolean",
+                    "description": "启用网络搜索功能",
+                },
+                "WEBLENS_ENABLED": {
+                    "value": config.network_search.weblens_enabled,
+                    "type": "boolean",
+                    "description": "启用网页内容提取功能",
+                },
+                "NETWORK_SEARCH_API_KEY": {
+                    "value": config.network_search.api_key,
+                    "type": "string",
+                    "description": "网络搜索 API 密钥（留空则使用 LLM 设置中的 API 密钥）",
+                    "is_secret": True
+                },
+                "NETWORK_SEARCH_BASE_URL": {
+                    "value": config.network_search.base_url,
+                    "type": "string",
+                    "description": "网络搜索 API 基础 URL（留空则使用 LLM 设置中的 URL）",
                 }
             }
         )
@@ -383,16 +411,12 @@ def save_config_file(config_data):
 def reinitialize_tasks():
     """重新初始化定时任务"""
     try:
-        from src.main import initialize_auto_tasks, message_handler
-        auto_tasker = initialize_auto_tasks(message_handler)
-        if auto_tasker:
-            logger.info("成功重新初始化定时任务")
-            return True
-        else:
-            logger.warning("重新初始化定时任务返回空值")
-            return False
+        # 直接修改配置文件，不需要重新初始化任务
+        # 因为任务会在主程序启动时自动加载
+        logger.info("配置已更新，任务将在主程序下次启动时生效")
+        return True
     except Exception as e:
-        logger.error(f"重新初始化定时任务失败: {str(e)}")
+        logger.error(f"更新任务配置失败: {str(e)}")
         return False
 
 @app.route('/save', methods=['POST'])
@@ -455,10 +479,10 @@ def save_config():
                     }), 400
             # 处理其他配置项
             elif key in ['LISTEN_LIST', 'DEEPSEEK_BASE_URL', 'MODEL', 'DEEPSEEK_API_KEY', 'MAX_TOKEN', 'TEMPERATURE',
-                       'TOP_P', 'FREQUENCY_PENALTY', 'VISION_API_KEY', 'VISION_BASE_URL', 'VISION_TEMPERATURE', 'VISION_MODEL',
-                       'VISION_TOP_P', 'VISION_FREQUENCY_PENALTY', 'IMAGE_MODEL', 'TEMP_IMAGE_DIR', 'AUTO_MESSAGE', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS',
+                       'VISION_API_KEY', 'VISION_BASE_URL', 'VISION_TEMPERATURE', 'VISION_MODEL',
+                       'IMAGE_MODEL', 'TEMP_IMAGE_DIR', 'AUTO_MESSAGE', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS',
                        'QUIET_TIME_START', 'QUIET_TIME_END', 'TTS_API_URL', 'VOICE_DIR', 'MAX_GROUPS', 'AVATAR_DIR',
-                       'QUEUE_TIMEOUT']:
+                       'QUEUE_TIMEOUT', 'NETWORK_SEARCH_ENABLED', 'WEBLENS_ENABLED', 'NETWORK_SEARCH_API_KEY', 'NETWORK_SEARCH_BASE_URL']:
                 update_config_value(current_config, key, value)
             else:
                 logger.warning(f"未知的配置项: {key}")
@@ -475,7 +499,8 @@ def save_config():
         g.config_data = current_config
 
         # 重新初始化定时任务
-        reinitialize_tasks()
+        # 不再重新初始化任务，只更新配置文件
+        logger.info("配置已更新，任务将在主程序下次启动时生效")
 
         return jsonify({
             "status": "success",
@@ -502,14 +527,14 @@ def update_config_value(config_data, key, value):
             'DEEPSEEK_API_KEY': ['categories', 'llm_settings', 'settings', 'api_key', 'value'],
             'MAX_TOKEN': ['categories', 'llm_settings', 'settings', 'max_tokens', 'value'],
             'TEMPERATURE': ['categories', 'llm_settings', 'settings', 'temperature', 'value'],
-            'TOP_P': ['categories', 'llm_settings', 'settings', 'top_p', 'value'],
-            'FREQUENCY_PENALTY': ['categories', 'llm_settings', 'settings', 'frequency_penalty', 'value'],
             'VISION_API_KEY': ['categories', 'media_settings', 'settings', 'image_recognition', 'api_key', 'value'],
+            'NETWORK_SEARCH_ENABLED': ['categories', 'network_search_settings', 'settings', 'search_enabled', 'value'],
+            'WEBLENS_ENABLED': ['categories', 'network_search_settings', 'settings', 'weblens_enabled', 'value'],
+            'NETWORK_SEARCH_API_KEY': ['categories', 'network_search_settings', 'settings', 'api_key', 'value'],
+            'NETWORK_SEARCH_BASE_URL': ['categories', 'network_search_settings', 'settings', 'base_url', 'value'],
             'VISION_BASE_URL': ['categories', 'media_settings', 'settings', 'image_recognition', 'base_url', 'value'],
             'VISION_TEMPERATURE': ['categories', 'media_settings', 'settings', 'image_recognition', 'temperature', 'value'],
             'VISION_MODEL': ['categories', 'media_settings', 'settings', 'image_recognition', 'model', 'value'],
-            'VISION_TOP_P': ['categories', 'media_settings', 'settings', 'image_recognition', 'top_p', 'value'],
-            'VISION_FREQUENCY_PENALTY': ['categories', 'media_settings', 'settings', 'image_recognition', 'frequency_penalty', 'value'],
             'IMAGE_MODEL': ['categories', 'media_settings', 'settings', 'image_generation', 'model', 'value'],
             'TEMP_IMAGE_DIR': ['categories', 'media_settings', 'settings', 'image_generation', 'temp_dir', 'value'],
             'TTS_API_URL': ['categories', 'media_settings', 'settings', 'text_to_speech', 'tts_api_url', 'value'],
@@ -552,6 +577,30 @@ def update_config_value(config_data, key, value):
                     current['categories']['llm_settings']['settings']['api_key'] = {'value': value}
                 return
 
+            # 特殊处理网络搜索相关配置
+            elif key in ['NETWORK_SEARCH_ENABLED', 'WEBLENS_ENABLED',
+                        'NETWORK_SEARCH_API_KEY', 'NETWORK_SEARCH_BASE_URL']:
+                # 确保network_search_settings结构存在
+                if 'categories' not in current:
+                    current['categories'] = {}
+                if 'network_search_settings' not in current['categories']:
+                    current['categories']['network_search_settings'] = {'title': '网络搜索设置', 'settings': {}}
+                if 'settings' not in current['categories']['network_search_settings']:
+                    current['categories']['network_search_settings']['settings'] = {}
+
+                # 更新对应的配置项
+                if key == 'NETWORK_SEARCH_ENABLED':
+                    logger.info(f"设置网络搜索开关为: {value} (类型: {type(value).__name__})")
+                    current['categories']['network_search_settings']['settings']['search_enabled'] = {'value': value, 'type': 'boolean'}
+                elif key == 'WEBLENS_ENABLED':
+                    logger.info(f"设置网页内容提取开关为: {value} (类型: {type(value).__name__})")
+                    current['categories']['network_search_settings']['settings']['weblens_enabled'] = {'value': value, 'type': 'boolean'}
+                elif key == 'NETWORK_SEARCH_API_KEY':
+                    current['categories']['network_search_settings']['settings']['api_key'] = {'value': value}
+                elif key == 'NETWORK_SEARCH_BASE_URL':
+                    current['categories']['network_search_settings']['settings']['base_url'] = {'value': value}
+                return
+
             # 遍历路径直到倒数第二个元素
             for part in path[:-1]:
                 if part not in current:
@@ -559,8 +608,8 @@ def update_config_value(config_data, key, value):
                 current = current[part]
 
             # 设置最终值，确保类型正确
-            if isinstance(value, str) and key in ['MAX_TOKEN', 'TEMPERATURE', 'TOP_P', 'FREQUENCY_PENALTY', 'VISION_TEMPERATURE',
-                                               'VISION_TOP_P', 'VISION_FREQUENCY_PENALTY', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS', 'MAX_GROUPS',
+            if isinstance(value, str) and key in ['MAX_TOKEN', 'TEMPERATURE', 'VISION_TEMPERATURE',
+                                               'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS', 'MAX_GROUPS',
                                                'QUEUE_TIMEOUT']:
                 try:
                     # 尝试转换为数字
@@ -570,6 +619,15 @@ def update_config_value(config_data, key, value):
                         value = int(value)
                 except ValueError:
                     pass
+            # 处理布尔类型
+            elif key in ['NETWORK_SEARCH_ENABLED', 'WEBLENS_ENABLED']:
+                # 将字符串 'true'/'false' 转换为布尔值
+                if isinstance(value, str):
+                    value = value.lower() == 'true'
+                # 确保值是布尔类型
+                value = bool(value)
+                # 添加调试输出
+                logger.info(f"处理布尔值 {key}: {value}")
 
             current[path[-1]] = value
             logger.debug(f"已更新配置 {key}: {value}")
@@ -996,6 +1054,8 @@ def config():
         is_local=is_local_network(),
         active_page='config'
     )
+
+# 联网搜索配置已整合到高级配置页面
 
 # 在 app 初始化后添加
 @app.route('/static/<path:filename>')
@@ -1452,10 +1512,27 @@ def main():
 
     # 检查必要目录
     print_status("检查系统目录...", "info", "FILE")
-    if not os.path.exists(os.path.join(ROOT_DIR, 'src/webui/templates')):
-        print_status("错误：模板目录不存在！", "error", "CROSS")
-        return
-    print_status("系统目录检查完成", "success", "CHECK")
+    templates_dir = os.path.join(ROOT_DIR, 'src/webui/templates')
+    if not os.path.exists(templates_dir):
+        print_status(f"模板目录不存在！尝试创建: {templates_dir}", "warning", "WARNING")
+        try:
+            os.makedirs(templates_dir, exist_ok=True)
+            print_status("成功创建模板目录", "success", "CHECK")
+        except Exception as e:
+            print_status(f"创建模板目录失败: {e}", "error", "CROSS")
+            return
+
+    # 检查静态文件目录
+    static_dir = os.path.join(ROOT_DIR, 'src/webui/static')
+    if not os.path.exists(static_dir):
+        print_status(f"静态文件目录不存在！尝试创建: {static_dir}", "warning", "WARNING")
+        try:
+            os.makedirs(static_dir, exist_ok=True)
+            os.makedirs(os.path.join(static_dir, 'js'), exist_ok=True)
+            os.makedirs(os.path.join(static_dir, 'css'), exist_ok=True)
+            print_status("成功创建静态文件目录", "success", "CHECK")
+        except Exception as e:
+            print_status(f"创建静态文件目录失败: {e}", "error", "CROSS")
 
     # 检查配置文件
     print_status("检查配置文件...", "info", "CONFIG")
@@ -1463,6 +1540,18 @@ def main():
         print_status("错误：配置文件不存在！", "error", "CROSS")
         return
     print_status("配置文件检查完成", "success", "CHECK")
+
+    # 打印模板目录内容用于调试
+    try:
+        print_status(f"正在检查模板文件...", "info", "FILE")
+        if os.path.exists(templates_dir):
+            template_files = os.listdir(templates_dir)
+            if template_files:
+                print_status(f"找到{len(template_files)}个模板文件: {', '.join(template_files)}", "success", "CHECK")
+            else:
+                print_status("模板目录为空", "warning", "WARNING")
+    except Exception as e:
+        print_status(f"检查模板文件失败: {e}", "error", "CROSS")
 
     # 修改启动 Web 服务器的部分
     try:
@@ -1708,28 +1797,40 @@ def logout():
 def get_model_configs():
     """获取模型和API配置"""
     try:
+        configs = None
+        models_path = os.path.join(ROOT_DIR, 'src/autoupdate/cloud/models.json')
+
         # 先尝试从云端获取模型列表
-        from src.autoupdate.updater import check_cloud_info
-        cloud_info = check_cloud_info()
+        try:
+            from src.autoupdate.updater import check_cloud_info
+            cloud_info = check_cloud_info()
 
-        # 如果云端获取成功，使用云端模型列表
-        if cloud_info['models']:
-            configs = cloud_info['models']
-            logger.info("使用云端模型列表")
-        else:
-            # 如果云端获取失败，使用本地模型列表
-            models_path = os.path.join(ROOT_DIR, 'src/autoupdate/cloud/models.json')
+            # 如果云端获取成功，使用云端模型列表
+            if cloud_info and cloud_info.get('models'):
+                configs = cloud_info['models']
+                logger.info("使用云端模型列表")
+        except Exception as cloud_error:
+            logger.warning(f"从云端获取模型列表失败: {str(cloud_error)}")
 
+        # 如果云端获取失败，使用本地模型列表
+        if configs is None:
             if not os.path.exists(models_path):
+                logger.error(f"本地模型配置文件不存在: {models_path}")
                 return jsonify({
                     'status': 'error',
-                    'message': '配置文件不存在'
+                    'message': '模型配置文件不存在'
                 })
 
-            with open(models_path, 'r', encoding='utf-8') as f:
-                configs = json.load(f)
-            logger.info("使用本地模型列表")
-
+            try:
+                with open(models_path, 'r', encoding='utf-8') as f:
+                    configs = json.load(f)
+                    logger.info("使用本地模型列表")
+            except Exception as local_error:
+                logger.error(f"读取本地模型列表失败: {str(local_error)}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f'读取模型配置失败: {str(local_error)}'
+                })
 
         # 过滤和排序提供商
         active_providers = [p for p in configs['api_providers']
@@ -1754,9 +1855,10 @@ def get_model_configs():
         return jsonify(return_configs)
 
     except Exception as e:
+        logger.error(f"获取模型配置失败: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': f'获取模型配置失败: {str(e)}'
         })
 
 @app.route('/save_quick_setup', methods=['POST'])
@@ -2176,10 +2278,6 @@ def get_all_configs():
                         configs['图像识别API配置']['VISION_TEMPERATURE'] = img_recog['temperature']
                     if 'model' in img_recog:
                         configs['图像识别API配置']['VISION_MODEL'] = img_recog['model']
-                    if 'top_p' in img_recog:
-                        configs['图像识别API配置']['VISION_TOP_P'] = img_recog['top_p']
-                    if 'frequency_penalty' in img_recog:
-                        configs['图像识别API配置']['VISION_FREQUENCY_PENALTY'] = img_recog['frequency_penalty']
 
                 # 图像生成设置
                 '''
@@ -2233,14 +2331,27 @@ def get_all_configs():
                     if 'timeout' in msg_queue:
                         configs['消息配置']['QUEUE_TIMEOUT'] = msg_queue['timeout']
 
-                # Prompt配置
-                configs['Prompt配置'] = {}
+                # 人设配置
+                configs['人设配置'] = {}
                 if 'context' in behavior:
                     context = behavior['context']
                     if 'max_groups' in context:
-                        configs['Prompt配置']['MAX_GROUPS'] = context['max_groups']
+                        configs['人设配置']['MAX_GROUPS'] = context['max_groups']
                     if 'avatar_dir' in context:
-                        configs['Prompt配置']['AVATAR_DIR'] = context['avatar_dir']
+                        configs['人设配置']['AVATAR_DIR'] = context['avatar_dir']
+
+            # 网络搜索设置
+            if 'network_search_settings' in config_data['categories'] and 'settings' in config_data['categories']['network_search_settings']:
+                network_search = config_data['categories']['network_search_settings']['settings']
+                configs['网络搜索配置'] = {}
+                if 'search_enabled' in network_search:
+                    configs['网络搜索配置']['NETWORK_SEARCH_ENABLED'] = network_search['search_enabled']
+                if 'weblens_enabled' in network_search:
+                    configs['网络搜索配置']['WEBLENS_ENABLED'] = network_search['weblens_enabled']
+                if 'api_key' in network_search:
+                    configs['网络搜索配置']['NETWORK_SEARCH_API_KEY'] = network_search['api_key']
+                if 'base_url' in network_search:
+                    configs['网络搜索配置']['NETWORK_SEARCH_BASE_URL'] = network_search['base_url']
 
             # 定时任务
             if 'schedule_settings' in config_data['categories'] and 'settings' in config_data['categories']['schedule_settings']:
@@ -2272,32 +2383,53 @@ def get_announcement():
             'content': '欢迎使用KouriChat！'
         }
 
-        # 使用updater模块从云端获取公告和版本信息
-        from src.autoupdate.updater import check_cloud_info
-        cloud_info = check_cloud_info()
+        # 初始化云端信息变量
+        cloud_info = None
 
-        # 如果云端获取失败，尝试从本地读取公告
-        if not cloud_info['announcement'] and os.path.exists(ANNOUNCEMENT_CONFIG_PATH):
+        # 使用updater模块从云端获取公告和版本信息
+        try:
+            from src.autoupdate.updater import check_cloud_info
+            cloud_info = check_cloud_info()
+
+            # 如果云端获取成功
+            if cloud_info:
+                # 如果云端有公告信息
+                if cloud_info.get('announcement'):
+                    # 使用云端公告
+                    local_announcement = cloud_info['announcement']
+                    logger.info("使用云端公告信息")
+            else:
+                logger.warning("云端信息获取失败，将使用本地公告")
+        except Exception as cloud_error:
+            logger.warning(f"从云端获取公告失败: {str(cloud_error)}")
+
+        # 如果没有使用云端公告，尝试从本地读取
+        if local_announcement['content'] == '欢迎使用KouriChat！' and os.path.exists(ANNOUNCEMENT_CONFIG_PATH):
             try:
                 with open(ANNOUNCEMENT_CONFIG_PATH, 'r', encoding='utf-8') as f:
                     local_announcement = json.load(f)
                 logger.info("从本地读取公告信息成功")
             except Exception as e:
                 logger.error(f"读取本地公告文件失败: {e}")
-        elif cloud_info['announcement']:
-            # 使用云端公告
-            local_announcement = cloud_info['announcement']
-            logger.info("使用云端公告信息")
 
-        # 如果云端获取失败，尝试从本地读取版本信息
-        version_info = cloud_info['version']
-        if not version_info and os.path.exists(VERSION_CONFIG_PATH):
+        # 获取版本信息
+        version_info = None
+        if cloud_info and cloud_info.get('version'):
+            version_info = cloud_info['version']
+        elif os.path.exists(VERSION_CONFIG_PATH):
             try:
                 with open(VERSION_CONFIG_PATH, 'r', encoding='utf-8') as f:
                     version_info = json.load(f)
                 logger.info("从本地读取版本信息成功")
             except Exception as e:
                 logger.error(f"读取本地版本信息失败: {e}")
+
+        # 如果成功获取版本信息，将其添加到公告中
+        if version_info:
+                # 获取版本信息
+                version = version_info.get('version', '未知')
+                last_update = version_info.get('last_update', '未知')
+                description = version_info.get('description', [])
 
         # 如果成功获取版本信息，将其添加到公告中
         if version_info:
@@ -2331,7 +2463,7 @@ def get_announcement():
             else:
                 version_html += f"<p>{description}</p>"
 
-            version_html += "</div>"
+                version_html += "</div>"
 
             # 将版本信息附加到公告内容
             local_announcement['content'] += version_html
@@ -2377,7 +2509,7 @@ def get_vision_api_configs():
         # 构建图像识别API提供商列表
         vision_providers = [
             {
-                "id": "kourichat-asia",
+                "id": "kourichat-global",
                 "name": "KouriChat API (推荐)",
                 "url": "https://api.kourichat.com/v1",
                 "register_url": "https://api.kourichat.com/register",
@@ -2404,7 +2536,7 @@ def get_vision_api_configs():
 
         # 构建模型配置 - 只包含支持图像识别的模型
         vision_models = {
-            "kourichat-asia": [
+            "kourichat-global": [
                 {"id": "kourichat-vision", "name": "kourichat-vision"},
                 {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"},
                 {"id": "gpt-4o", "name": "GPT-4o"}
