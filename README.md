@@ -7,6 +7,7 @@
 
 - 修改了messsage.py，与base.md，角色在正式回复前，会返回一段以'[think][/think]'包裹的思维内容，会被提取至日志，不参与正文回复
 - 默认思维链采用**日语**（据说这样可以增加gemini智商），如有需要可以修改base.md
+- 可以在人设中增加“# thinking”条目引导角色思维与分阶段控制
 - 测试模型为gemini exp 325与gemini pre 506 不保证deepseek等模型完全遵从指令
 
 ## 记忆模式
